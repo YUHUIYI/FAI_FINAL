@@ -35,7 +35,7 @@ baseline_ai_list = [
 ]
 
 # 參數
-num_episodes = 5000
+num_episodes = 1000
 
 # 資料集
 obs_list = []
