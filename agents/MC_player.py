@@ -88,4 +88,4 @@ class FixedActionPlayer(BasePokerPlayer):
                 self.final_stack = player["stack"]
 
 def setup_ai():
-    return MonteCarloPlayer(num_simulations=50)  # 你可以調 N 模擬次數
+    return MonteCarloPlayer(num_simulations=300)  # 你可以調 N 模擬次數
