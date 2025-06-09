@@ -1,24 +1,22 @@
-import gym
-from gym import spaces
 import numpy as np
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from game.engine.dealer import Dealer
 from baseline0 import setup_ai as baseline0_ai
 from RL_player import RLAgentPlayer  
 
-
-class PokerEnv(gym.Env):
+class PokerEnv:
     def __init__(self):
-        super(PokerEnv, self).__init__()
+        # 定義 action space: 0 = fold, 1 = call, 2 = raise
+        self.num_actions = 3
 
-        # Action space: 0 = fold, 1 = call, 2 = raise
-        self.action_space = spaces.Discrete(3)
-
-        # Observation space: 自訂，簡單設為 5 維
-        self.observation_space = spaces.Box(low=0, high=10000, shape=(5,), dtype=np.float32)
+        # 定義 observation space 維度 → 5 維
+        self.obs_dim = 5
 
         self.dealer = Dealer(small_blind_amount=20, initial_stack=1000)
         self.agent = RLAgentPlayer()  # 你要訓練的 agent
-        self.opponent = baseline0_ai() # baseline 對手
+        self.opponent = baseline0_ai()  # baseline 對手
 
         self.dealer.register_player("agent", self.agent)
         self.dealer.register_player("opponent", self.opponent)
@@ -44,4 +42,3 @@ class PokerEnv(gym.Env):
         obs = self.agent.current_obs  # 可用不上
 
         return np.array(obs, dtype=np.float32), reward, done, {}
-
