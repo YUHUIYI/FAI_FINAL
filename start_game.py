@@ -7,10 +7,11 @@ from baseline0 import setup_ai as baseline0_ai
 from baseline1 import setup_ai as baseline1_ai
 from agents.Heuristic_player import setup_ai as heuristic_ai
 from agents.RL_player import setup_ai as RL_ai
+from agents.RF_player import setup_ai as RF_ai
 
 config = setup_config(max_round=20, initial_stack=1000, small_blind_amount=5)
 config.register_player(name="p1", algorithm=baseline1_ai())
-config.register_player(name="p2", algorithm=RL_ai())
+config.register_player(name="p2", algorithm= RF_ai())
 
 ## Play in interactive mode if uncomment
 #config.register_player(name="me", algorithm=console_ai())
