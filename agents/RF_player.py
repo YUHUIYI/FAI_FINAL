@@ -1,17 +1,33 @@
 # RF_player.py
+import sys
+import os
 import pickle
-from game.players import BasePokerPlayer
 import numpy as np
+
+# 添加项目根目录到系统路径
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from game.players import BasePokerPlayer
 
 class RFPlayer(BasePokerPlayer):
     def __init__(self, model_path="poker_policy_rf.pkl"):
-        with open(model_path, "rb") as f:
-            self.rf_clf = pickle.load(f)
+        self.observation_history = []
+        self.action_history = []
+        try:
+            with open(model_path, "rb") as f:
+                self.rf_clf = pickle.load(f)
+        except FileNotFoundError:
+            # 如果模型文件不存在，创建一个新的随机森林分类器
+            from sklearn.ensemble import RandomForestClassifier
+            self.rf_clf = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
 
     def declare_action(self, valid_actions, hole_card, round_state):
         obs = self._state_to_feature(hole_card, round_state)
+        self.observation_history.append(obs)  # 记录观察
+        
         obs = np.array(obs).reshape(1, -1)
         action_idx = self.rf_clf.predict(obs)[0]
+        self.action_history.append(action_idx)  # 记录动作
 
         action_info = valid_actions[action_idx]
         action, amount = action_info["action"], action_info["amount"]

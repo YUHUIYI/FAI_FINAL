@@ -3,6 +3,10 @@ import numpy as np
 import sys
 import os
 import pickle
+
+# 添加项目根目录到系统路径
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
