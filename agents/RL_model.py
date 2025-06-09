@@ -41,7 +41,7 @@ class PokerEnv:
             baseline7_ai
         ]
 
-        # 一開始先隨機選一個 opponent
+        # 一開始就隨機選一個 opponent
         self.opponent_ai = random.choice(self.baseline_ai_list)
         self.opponent = self.opponent_ai()
 
