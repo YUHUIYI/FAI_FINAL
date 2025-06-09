@@ -60,6 +60,13 @@ class FastMonteCarloPlayer(BasePokerPlayer):
 
         # 2. 取得彩池 & call / raise 資訊
         pot_size = round_state["pot"]["main"]["amount"]
+        
+        # 只考虑call和raise动作
+        valid_actions = [a for a in valid_actions if a["action"] in ["call", "raise"]]
+        if not valid_actions:
+            print("[MC Player] ERROR: No valid actions found!")
+            return "call", 0
+            
         call_amt = next(a["amount"] for a in valid_actions if a["action"] == "call")
         
         raise_info = next(a for a in valid_actions if a["action"] == "raise")
@@ -102,11 +109,6 @@ class FastMonteCarloPlayer(BasePokerPlayer):
               f"pot={pot_size} pot_odds={pot_odds:.2f} "
               f"EV(c/r)={[round(ev_call,1), round(ev_raise,1)]} "
               f"→ {best_action.upper()}")
-
-        # 确保不会返回fold
-        if best_action == "fold":
-            print("[MC Player] WARNING: Somehow got fold action, forcing call instead")
-            best_action, best_amt = "call", call_amt
 
         return best_action, best_amt
 
