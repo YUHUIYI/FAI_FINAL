@@ -40,8 +40,7 @@ class FastMonteCarloPlayer(BasePokerPlayer):
             raise_amt  = raise_info["amount"]["max"]         # 直接 all-in
             opp_call_p = max(0.2, 1 - equity)                # 粗估對手跟注率
             ev_called  = equity * (pot + raise_amt) - (1 - equity) * raise_amt
-            ev_folded  = pot
-            ev_raise   = opp_call_p * ev_called + (1 - opp_call_p) * ev_folded
+            ev_raise   = opp_call_p * ev_called 
 
         # 永遠不 fold
         if can_raise and equity >= self.thr and ev_raise > ev_call:
