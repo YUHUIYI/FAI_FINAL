@@ -72,9 +72,9 @@ class RLAgentPlayer(BasePokerPlayer):
         street = round_state["street"]
         street_num = street_dict.get(street, 0)
         return hole_ranks + [pot_size, num_players, street_num]
-
+    
     def receive_game_start_message(self, game_info):
-        pass
+        print(f"[Agent] I am using RLAgentPlayer.")
 
     def receive_round_start_message(self, round_count, hole_card, seats):
         pass
