@@ -2,7 +2,7 @@
 """
 Fast Monte-Carlo search​-based Texas Hold'em agent
 -------------------------------------------------
-‣ 每回合僅考慮 3 個動作：fold / call / all-in(raise)
+‣ 每回合僅考慮 2 個動作：call / all-in(raise)
 ‣ Monte-Carlo 依「目前街別」補齊餘下公共牌，估算自己勝率 (equity)
 ‣ 用簡單 EV = equity × 總彩池 − (1-equity) × 需投入計算
 ‣ 取 EV 最大的動作；equity 高於 raise_threshold 才考慮 all-in
@@ -20,23 +20,32 @@ from game.engine.hand_evaluator import HandEvaluator
 class FastMonteCarloPlayer(BasePokerPlayer):
     def __init__(self,
                  num_simulations: int = 1000,
-                 raise_threshold: float = 0.35,  # 降低raise阈值
-                 call_threshold: float = 0.10,   # 降低call阈值到10%
+                 raise_threshold: float = 0.35,
+                 call_threshold: float = 0.10,
                  rng_seed: int = None):
         self.N = num_simulations
         self.raise_thr = raise_threshold
         self.call_thr = call_threshold
         self.rng = np.random.default_rng(rng_seed)
         self.position = None
+        print(f"[MC Player] Initialized with raise_thr={raise_threshold}, call_thr={call_threshold}")
+
+    def receive_game_start_message(self, game_info):
+        print("[MC Player] Game started")
+        self.position = None
+
+    def receive_round_start_message(self, round_count, hole_card, seats):
+        # 在每轮开始时更新位置信息
+        for seat in seats:
+            if seat["uuid"] == self.uuid:
+                self.position = "SB" if seat["stack"] == 980 else "BB"  # 假设小盲是20
+                print(f"[MC Player] Round {round_count} started, position: {self.position}")
+                break
 
     # ------------------------------------------------------------------ #
     # 主要決策
     # ------------------------------------------------------------------ #
     def declare_action(self, valid_actions, hole_card, round_state):
-        # 更新位置信息
-        if self.position is None:
-            self.position = "SB" if round_state["small_blind_pos"] == round_state["current_player"] else "BB"
-
         # 1. Monte-Carlo 估 equity
         equity = self._estimate_equity(hole_card, round_state)   # 0-1
         
@@ -53,9 +62,6 @@ class FastMonteCarloPlayer(BasePokerPlayer):
                     raise_info["amount"]["max"] != -1)
 
         # 3. EV 计算（改进版）
-        # fold的EV设为很小的负数，表示损失盲注
-        ev_fold = -20  # 假设小盲是20
-        
         # 改进call的EV计算
         pot_odds = call_amt / (pot_size + call_amt)
         ev_call = adjusted_equity * pot_size - (1 - adjusted_equity) * call_amt
@@ -76,25 +82,20 @@ class FastMonteCarloPlayer(BasePokerPlayer):
             ev_if_fold = pot_size
             ev_raise = call_prob * ev_if_called + (1 - call_prob) * ev_if_fold
 
-        # 4. 决策逻辑（改进版）
+        # 4. 决策逻辑（改进版）- 禁止fold
         # 首先检查是否可以raise
         if can_raise and adjusted_equity >= self.raise_thr:
             best_action, best_amt = "raise", raise_amt
-        # 然后检查是否可以call
-        elif adjusted_equity >= self.call_thr:
-            best_action, best_amt = "call", call_amt
-        # 最后才考虑fold
+            print(f"[MC Player] Choosing RAISE because adjusted_equity ({adjusted_equity:.3f}) >= raise_thr ({self.raise_thr})")
+        # 否则就call
         else:
-            best_action, best_amt = "fold", 0
-
-        # 特殊情况：如果pot odds特别好，即使equity较低也考虑call
-        if best_action == "fold" and pot_odds < 0.2:
             best_action, best_amt = "call", call_amt
+            print(f"[MC Player] Choosing CALL because adjusted_equity ({adjusted_equity:.3f}) < raise_thr ({self.raise_thr}) or cannot raise")
 
         # debug
-        print(f"[FastMC] pos={self.position} equity={equity:.3f}(adj={adjusted_equity:.3f}) "
+        print(f"[MC Player] pos={self.position} equity={equity:.3f}(adj={adjusted_equity:.3f}) "
               f"pot={pot_size} pot_odds={pot_odds:.2f} "
-              f"EV(f/c/r)={[round(ev_fold,1), round(ev_call,1), round(ev_raise,1)]} "
+              f"EV(c/r)={[round(ev_call,1), round(ev_raise,1)]} "
               f"→ {best_action.upper()}")
 
         return best_action, best_amt
@@ -132,14 +133,18 @@ class FastMonteCarloPlayer(BasePokerPlayer):
             if my_score > opp_score: win += 1
             elif my_score == opp_score: win += .5
 
-        return win / self.N
+        equity = win / self.N
+        print(f"[MC Player] Raw equity calculation: {equity:.3f} (wins={win}, total={self.N})")
+        return equity
 
-    # 其餘 callback 保留
-    def receive_game_start_message(self, game_info): pass
-    def receive_round_start_message(self, round_count, hole_card, seats): pass
-    def receive_street_start_message(self, street, round_state): pass
-    def receive_game_update_message(self, action, round_state): pass
-    def receive_round_result_message(self, winners, hand_info, round_state): pass
+    def receive_street_start_message(self, street, round_state):
+        print(f"[MC Player] Street {street} started")
+
+    def receive_game_update_message(self, action, round_state):
+        pass
+
+    def receive_round_result_message(self, winners, hand_info, round_state):
+        print(f"[MC Player] Round ended. Winners: {winners}")
 
 # 工廠函式
 def setup_ai():
