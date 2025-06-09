@@ -19,9 +19,9 @@ from game.engine.hand_evaluator import HandEvaluator
 # ---- Monte-Carlo player ---------------------------------------------------- #
 class FastMonteCarloPlayer(BasePokerPlayer):
     def __init__(self,
-                 num_simulations: int = 1000,  # 增加模拟次数
-                 raise_threshold: float = 0.45,  # 降低raise阈值
-                 call_threshold: float = 0.35,   # 添加call阈值
+                 num_simulations: int = 1000,
+                 raise_threshold: float = 0.35,  # 降低raise阈值
+                 call_threshold: float = 0.10,   # 降低call阈值到10%
                  rng_seed: int = None):
         self.N = num_simulations
         self.raise_thr = raise_threshold
@@ -53,14 +53,17 @@ class FastMonteCarloPlayer(BasePokerPlayer):
                     raise_info["amount"]["max"] != -1)
 
         # 3. EV 计算（改进版）
-        ev_fold = 0.0
+        # fold的EV设为很小的负数，表示损失盲注
+        ev_fold = -20  # 假设小盲是20
         
         # 改进call的EV计算
         pot_odds = call_amt / (pot_size + call_amt)
         ev_call = adjusted_equity * pot_size - (1 - adjusted_equity) * call_amt
         
-        # 如果pot odds很好，降低call的要求
+        # 如果pot odds很好，大幅提高call的EV
         if pot_odds < 0.3:  # 好的pot odds
+            ev_call *= 1.5
+        elif pot_odds < 0.5:  # 一般的pot odds
             ev_call *= 1.2
 
         ev_raise = -np.inf
@@ -73,21 +76,20 @@ class FastMonteCarloPlayer(BasePokerPlayer):
             ev_if_fold = pot_size
             ev_raise = call_prob * ev_if_called + (1 - call_prob) * ev_if_fold
 
-        # 4. 選 EV 最大動作
-        cand = [("fold", 0, ev_fold),
-                ("call", call_amt, ev_call),
-                ("raise", raise_amt, ev_raise)]
-        best_action, best_amt, _ = max(cand, key=lambda x: x[2])
+        # 4. 决策逻辑（改进版）
+        # 首先检查是否可以raise
+        if can_raise and adjusted_equity >= self.raise_thr:
+            best_action, best_amt = "raise", raise_amt
+        # 然后检查是否可以call
+        elif adjusted_equity >= self.call_thr:
+            best_action, best_amt = "call", call_amt
+        # 最后才考虑fold
+        else:
+            best_action, best_amt = "fold", 0
 
-        # 改进决策逻辑
-        if best_action == "fold":
-            # 如果equity高于call阈值，考虑call
-            if adjusted_equity > self.call_thr:
-                best_action, best_amt = "call", call_amt
-        elif best_action == "raise":
-            # 如果raise不可行，考虑call
-            if not can_raise and adjusted_equity > self.call_thr:
-                best_action, best_amt = "call", call_amt
+        # 特殊情况：如果pot odds特别好，即使equity较低也考虑call
+        if best_action == "fold" and pot_odds < 0.2:
+            best_action, best_amt = "call", call_amt
 
         # debug
         print(f"[FastMC] pos={self.position} equity={equity:.3f}(adj={adjusted_equity:.3f}) "
@@ -142,6 +144,6 @@ class FastMonteCarloPlayer(BasePokerPlayer):
 # 工廠函式
 def setup_ai():
     return FastMonteCarloPlayer(num_simulations=1000,
-                              raise_threshold=0.45,
-                              call_threshold=0.35,
+                              raise_threshold=0.35,
+                              call_threshold=0.10,
                               rng_seed=None)
