@@ -1,4 +1,5 @@
 from RL_model import PokerEnv
+import numpy as np
 
 # 建立環境
 env = PokerEnv()
@@ -12,7 +13,7 @@ done = False
 step_count = 0
 while not done:
     # 隨機選 action 測試 (0=fold, 1=call, 2=raise)
-    action = env.action_space.sample()
+    action = np.random.choice(env.num_actions)
     print(f"\nStep {step_count} - Action taken: {action}")
 
     obs, reward, done, info = env.step(action)
