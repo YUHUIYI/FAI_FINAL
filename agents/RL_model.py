@@ -19,7 +19,6 @@ class PokerEnv:
         else:
             self.agent = agent
 
-        from game.players.heuristic_player import setup_ai as baseline0_ai
         self.opponent = baseline0_ai()
 
         self.dealer.register_player("agent", self.agent)
