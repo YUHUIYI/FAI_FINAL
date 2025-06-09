@@ -46,6 +46,11 @@ class FastMonteCarloPlayer(BasePokerPlayer):
     # 主要決策
     # ------------------------------------------------------------------ #
     def declare_action(self, valid_actions, hole_card, round_state):
+        # 添加调试信息
+        print(f"[MC Player] Valid actions: {valid_actions}")
+        print(f"[MC Player] Hole cards: {hole_card}")
+        print(f"[MC Player] Round state: {round_state}")
+        
         # 1. Monte-Carlo 估 equity
         equity = self._estimate_equity(hole_card, round_state)   # 0-1
         
@@ -97,6 +102,11 @@ class FastMonteCarloPlayer(BasePokerPlayer):
               f"pot={pot_size} pot_odds={pot_odds:.2f} "
               f"EV(c/r)={[round(ev_call,1), round(ev_raise,1)]} "
               f"→ {best_action.upper()}")
+
+        # 确保不会返回fold
+        if best_action == "fold":
+            print("[MC Player] WARNING: Somehow got fold action, forcing call instead")
+            best_action, best_amt = "call", call_amt
 
         return best_action, best_amt
 
