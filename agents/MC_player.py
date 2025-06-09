@@ -2,90 +2,84 @@
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# fast_mc_player.py
 import random
-import copy
+import numpy as np
 from game.players import BasePokerPlayer
-from game.engine.dealer import Dealer
-from baseline0 import setup_ai as baseline0_ai
+from game.engine.card import Card
+from game.engine.hand_evaluator import HandEvaluator
+from game.engine.poker_constants import PokerConstants as Const
 
-class MonteCarloPlayer(BasePokerPlayer):
-    def __init__(self, num_simulations=50):
-        self.num_simulations = num_simulations
+class FastMonteCarloPlayer(BasePokerPlayer):
+    """
+    Monte-Carlo Search-based Texas-Hold'em agent (fold / call / shove)
+    - 每次決策：
+        1. 依目前 street & 已知牌，用 Monte Carlo 抽樣對手 hole 牌 + 剩餘公共牌
+        2. 計算自己 vs 對手勝率 (equity)
+        3. 估算 fold / call / raise EV，三擇一
+    """
+    def __init__(self, num_simulations:int = 3000, raise_threshold:float = 0.65):
+        self.N = num_simulations
+        self.raise_thr = raise_threshold     # equity > 0.65 則考慮 raise
 
+    # ---------------- core decision ---------------- #
     def declare_action(self, valid_actions, hole_card, round_state):
-        # 對每個 action 模擬 N 次 → 算 EV
-        action_EVs = []
-        for action_info in valid_actions:
-            action = action_info["action"]
-            amount = action_info["amount"]
+        equity = self._estimate_equity(hole_card, round_state)  # 0~1
+        pot_size   = round_state["pot"]["main"]["amount"]
+        call_amt   = next(e["amount"] for e in valid_actions if e["action"]=="call")
+        my_invest  = call_amt                                    # 才需要再投入的籌碼
 
-            ev = self._estimate_action_EV(action, amount, hole_card, round_state)
-            action_EVs.append((action, amount, ev))
+        # --- EV 計算（簡化版）--- #
+        ev_fold = 0.0                                           # 折牌 EV = 0
+        ev_call = equity * pot_size  -  (1 - equity) * my_invest
+        ev_raise = -np.inf
+        raise_info = next(a for a in valid_actions if a["action"]=="raise")
+        if raise_info["amount"]["max"] != -1:
+            shove_amt = raise_info["amount"]["max"]
+            # 假設對手 50% 跟注、50% 棄牌作近似
+            ev_if_called = equity * (pot_size + shove_amt) - (1 - equity) * shove_amt
+            ev_if_fold   = pot_size
+            ev_raise     = 0.5 * ev_if_called + 0.5 * ev_if_fold
 
-        # 選 EV 最大的 action 出
-        best_action = max(action_EVs, key=lambda x: x[2])
-        print(f"[MC Player] Action EVs: {action_EVs}, Selected: {best_action}")
-        return best_action[0], best_action[1]
+        # --- 取最大 EV 的動作 --- #
+        evs = [("fold", 0, ev_fold), ("call", call_amt, ev_call), ("raise", raise_info["amount"]["max"], ev_raise)]
+        best_action, best_amt, _ = max(evs, key=lambda x: x[2])
 
-    def _estimate_action_EV(self, action, amount, hole_card, round_state):
-        total_reward = 0
-        for _ in range(self.num_simulations):
-            # 每次模擬一局
-            reward = self._simulate_game(action, amount, hole_card, round_state)
-            total_reward += reward
+        # 也可設定簡單 heuristic：若 equity > raise_thr 才允許 raise
+        if best_action=="raise" and equity < self.raise_thr:
+            best_action, best_amt = "call", call_amt
 
-        avg_reward = total_reward / self.num_simulations
-        return avg_reward
+        # print debug
+        print(f"[FastMC] equity={equity:.3f}, EVs={[(e[0],round(e[2],1)) for e in evs]}, choose={best_action}")
+        return best_action, best_amt
 
-    def _simulate_game(self, action, amount, hole_card, round_state):
-        # 初始化 dealer → 用 baseline0_ai 當對手 → 簡單可靠 baseline
-        dealer = Dealer(small_blind_amount=20, initial_stack=1000)
+    # ---------------- Monte Carlo Equity ---------------- #
+    def _estimate_equity(self, hole_card, round_state):
+        # 1. 已知牌
+        board_cards = [Card.from_str(c) for c in round_state["community_card"]]
+        my_cards    = [Card.from_str(c) for c in hole_card]
+        known_ids   = {c.to_id() for c in board_cards+my_cards}
 
-        # 自己用一個 DummyPlayer → 只會固定做 action
-        mc_dummy_player = FixedActionPlayer(action, amount)
-        opponent = baseline0_ai()
+        # 2. 建立牌庫 & 隨機抽樣
+        deck_ids = [cid for cid in range(1,53) if cid not in known_ids]
+        sims = np.random.choice(deck_ids, size=(self.N, 2 + (5-len(board_cards))), replace=False)
 
-        dealer.register_player("mc_dummy_player", mc_dummy_player)
-        dealer.register_player("opponent", opponent)
+        wins = 0
+        for draw in sims:
+            opp_hole   = [Card.from_id(draw[0]), Card.from_id(draw[1])]
+            future_ids = draw[2:]
+            future_board = board_cards + [Card.from_id(cid) for cid in future_ids]
 
-        dealer.set_verbose(0)
-        dealer.start_game(max_round=1)
+            my_score  = HandEvaluator.eval_hand(my_cards, future_board)
+            opp_score = HandEvaluator.eval_hand(opp_hole, future_board)
+            if my_score > opp_score:
+                wins += 1
+            elif my_score == opp_score:
+                wins += 0.5  # split pot
 
-        # reward = 自己 final stack - initial stack
-        final_stack = mc_dummy_player.final_stack
-        reward = final_stack - 1000
-        return reward
+        return wins / self.N
 
-    def receive_game_start_message(self, game_info):
-        print("[MC Player] I am using MonteCarloPlayer.")
-        pass
-
-    def receive_round_start_message(self, round_count, hole_card, seats):
-        pass
-
-    def receive_street_start_message(self, street, round_state):
-        pass
-
-    def receive_game_update_message(self, action, round_state):
-        pass
-
-    def receive_round_result_message(self, winners, hand_info, round_state):
-        pass
-
-# 一個固定做某個 action 的 Dummy Player → 給 Monte Carlo 模擬用
-class FixedActionPlayer(BasePokerPlayer):
-    def __init__(self, fixed_action, fixed_amount):
-        self.fixed_action = fixed_action
-        self.fixed_amount = fixed_amount
-        self.final_stack = 0
-
-    def declare_action(self, valid_actions, hole_card, round_state):
-        return self.fixed_action, self.fixed_amount
-
-    def receive_round_result_message(self, winners, hand_info, round_state):
-        for player in round_state["seats"]:
-            if player["uuid"] == self.uuid:
-                self.final_stack = player["stack"]
-
+# ----------------------------------------------------- #
 def setup_ai():
-    return MonteCarloPlayer(num_simulations=300)  # 你可以調 N 模擬次數
+    """讓 start_game.py 可以直接 import 這個 AI"""
+    return FastMonteCarloPlayer(num_simulations=3000, raise_threshold=0.65)
