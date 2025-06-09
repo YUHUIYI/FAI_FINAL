@@ -17,7 +17,7 @@ def evaluate_RL_agent(num_games=100):
         config = setup_config(max_round=20, initial_stack=1000, small_blind_amount=5)
 
         # p1 = baseline0 AI
-        config.register_player(name="p1", algorithm=baseline0_ai())
+        config.register_player(name="p1", algorithm=baseline1_ai())
         # p2 = RL AI
         config.register_player(name="p2", algorithm=RL_ai())
 
