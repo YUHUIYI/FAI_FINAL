@@ -2,15 +2,13 @@
 import numpy as np
 import sys
 import os
-import random
 import pickle
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from RL_model import PokerEnv
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
+from game.engine.dealer import Dealer
+from random_player import RandomPlayer
+from RF_player import RFPlayer
 
 # 參數
 num_episodes = 5000
@@ -19,23 +17,23 @@ num_episodes = 5000
 obs_list = []
 action_list = []
 
-# 環境
-env = PokerEnv()
+# 初始化遊戲環境
+dealer = Dealer(small_blind_amount=20, initial_stack=1000)
+rf_player = RFPlayer()
+random_player = RandomPlayer()
+
+dealer.register_player("rf_player", rf_player)
+dealer.register_player("random_player", random_player)
 
 print("Collecting data...")
 for episode in range(num_episodes):
-    obs = env.reset()
-    done = False
-    while not done:
-        # baseline 隨機選 action 當 label (也可以改 heuristic_ai 出 action)
-        action_idx = random.choice([0, 1, 2])
-
-        # 存資料
-        obs_list.append(obs)
-        action_list.append(action_idx)
-
-        obs, reward, done, _ = env.step(action_idx)
-
+    dealer.set_verbose(0)
+    dealer.start_game(max_round=1)
+    
+    # 收集RF玩家的觀察和動作
+    obs_list.extend(rf_player.observation_history)
+    action_list.extend(rf_player.action_history)
+    
     if (episode+1) % 100 == 0:
         print(f"Episode {episode+1}/{num_episodes} collected")
 
