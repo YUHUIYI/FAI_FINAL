@@ -1,3 +1,5 @@
+from game.players import BasePokerPlayer
+
 class RLAgentPlayer(BasePokerPlayer):
     def __init__(self):
         self.next_action = 1  # 預設 call
