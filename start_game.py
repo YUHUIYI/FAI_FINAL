@@ -12,7 +12,7 @@ from agents.MC_player import setup_ai as MC_ai
 
 config = setup_config(max_round=20, initial_stack=1000, small_blind_amount=5)
 config.register_player(name="p1", algorithm=baseline1_ai())
-config.register_player(name="p2", algorithm= call_ai())
+config.register_player(name="p2", algorithm= MC_ai())
 
 ## Play in interactive mode if uncomment
 #config.register_player(name="me", algorithm=console_ai())
