@@ -57,6 +57,7 @@ class MonteCarloPlayer(BasePokerPlayer):
         return reward
 
     def receive_game_start_message(self, game_info):
+        print("[MC Player] I am using MonteCarloPlayer.")
         pass
 
     def receive_round_start_message(self, round_count, hole_card, seats):
