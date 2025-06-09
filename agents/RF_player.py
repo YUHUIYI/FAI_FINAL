@@ -4,38 +4,30 @@ import os
 import pickle
 import numpy as np
 
-# 添加项目根目录到系统路径
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from game.players import BasePokerPlayer
 
 class RFPlayer(BasePokerPlayer):
-    def __init__(self, model_path="poker_policy_rf.pkl"):
+    def __init__(self):
         self.observation_history = []
-        self.action_history = []
-        try:
-            with open(model_path, "rb") as f:
-                self.rf_clf = pickle.load(f)
-        except FileNotFoundError:
-            # 如果模型文件不存在，创建一个新的随机森林分类器
-            from sklearn.ensemble import RandomForestClassifier
-            self.rf_clf = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
+        self.opponent_action_history = []
 
     def declare_action(self, valid_actions, hole_card, round_state):
+        # 記錄 obs → feature
         obs = self._state_to_feature(hole_card, round_state)
-        self.observation_history.append(obs)  # 记录观察
-        
-        obs = np.array(obs).reshape(1, -1)
-        action_idx = self.rf_clf.predict(obs)[0]
-        self.action_history.append(action_idx)  # 记录动作
+        self.observation_history.append(obs)
 
-        action_info = valid_actions[action_idx]
-        action, amount = action_info["action"], action_info["amount"]
+        # 自己隨便選，不重要 → 因為要學 opponent 的行為
+        action_info = valid_actions[1]  # call
+        return action_info["action"], action_info["amount"]
 
-        if action == "raise" and isinstance(amount, dict):
-            amount = amount["max"]
-
-        return action, amount
+    def receive_game_update_message(self, action, round_state):
+        # 如果是 opponent 出 action → 記錄下來當 label
+        if action["player_uuid"] != self.uuid:
+            action_map = {"fold": 0, "call": 1, "raise": 2}
+            action_idx = action_map.get(action["action"], 1)
+            self.opponent_action_history.append(action_idx)
 
     def _state_to_feature(self, hole_card, round_state):
         card_rank_dict = {
@@ -57,9 +49,6 @@ class RFPlayer(BasePokerPlayer):
         pass
 
     def receive_street_start_message(self, street, round_state):
-        pass
-
-    def receive_game_update_message(self, action, round_state):
         pass
 
     def receive_round_result_message(self, winners, hand_info, round_state):
