@@ -38,7 +38,7 @@ class RLAgentPlayer(BasePokerPlayer):
         self.next_action = action_idx
 
     def reset_episode(self):
-        self.current_obs = None
+        self.current_obs = np.zeros(5, dtype=np.float32)  # 強制 5 維 0 向量 → 保證 obs shape 正確
         self.final_stack = 0
 
     def declare_action(self, valid_actions, hole_card, round_state):
