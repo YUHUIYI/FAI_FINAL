@@ -89,3 +89,5 @@ class RLAgentPlayer(BasePokerPlayer):
         for player in round_state["seats"]:
             if player["name"] == "agent":
                 self.final_stack = player["stack"]
+def setup_ai():
+    return RLAgentPlayer()
