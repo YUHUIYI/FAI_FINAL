@@ -1,124 +1,161 @@
-# agents/MC_player.py
-"""
-Monte-Carlo player —— 只會 CALL 或 ALL-IN（永不 fold）
-compatible with Python 3.8+
-"""
-import os, sys
-import numpy as np
-from typing import Optional          #  ←  新增
+"""agents/MC_player.py
+A lightweight Monte‑Carlo search Texas‑Hold’em agent.
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+Highlights
+----------
+* **Never folds** – the agent will always choose **call** or **raise**.
+* **Equity driven** – estimates win‑rate (equity) against one unknown opponent by
+  Monte‑Carlo sampling of opponent hole cards and future community cards.
+* **Simple EV model** – decides between *call* and *all‑in raise* using
+  expected‑value given the current pot and the amount that must be invested.
+* **Console‑friendly** – implementation follows the same callback style used by
+  `ConsolePlayer` (declare_action / receive_* methods).
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import random
+from typing import List, Tuple
+
+import numpy as np
+
+# Project root on the import path ------------------------------------------------
+SYS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "."))
+if SYS_DIR not in sys.path:
+    sys.path.append(SYS_DIR)
+
 from game.players import BasePokerPlayer
 from game.engine.card import Card
 from game.engine.hand_evaluator import HandEvaluator
 
 
-class FastMonteCarloPlayer(BasePokerPlayer):
-    def __init__(self,
-                 num_simulations: int = 2000,
-                 raise_threshold: float = 0.55,
-                 rng_seed: Optional[int] = None):      # ←  使用 Optional
-        self.N   = num_simulations
-        self.thr = raise_threshold
-        self.rng = np.random.default_rng(rng_seed)
+# ---------------------------------------------------------------------------
+# Monte‑Carlo helper
+# ---------------------------------------------------------------------------
 
-    # ─────────────────────────────────────────────────────────── #
-    def declare_action(self, valid_actions, hole_card, round_state):
-        # 添加调试信息
-        print(f"[MC Player] Valid actions: {valid_actions}")
-        print(f"[MC Player] Hole cards: {hole_card}")
-        print(f"[MC Player] Round state: {round_state}")
-        
-        # 1. Monte-Carlo 估 equity
-        equity = self._estimate_equity(hole_card, round_state)   # 0-1
-        
-        # 根据位置调整equity
-        position_bonus = 0.05 if self.position == "BB" else 0.0
-        adjusted_equity = min(0.95, equity + position_bonus)
+def _estimate_equity(my_hole: List[str], community: List[str], n_sim: int, rng: np.random.Generator) -> float:
+    """Return the probability that *my hand* wins at showdown against a single
+    random opponent.
 
-        # 2. 取得彩池 & call / raise 資訊
-        pot_size = round_state["pot"]["main"]["amount"]
-        
-        # 直接使用索引获取动作信息
-        call_action_info = valid_actions[1]  # call是第二个动作
-        raise_action_info = valid_actions[2]  # raise是第三个动作
-        
-        call_amt = call_action_info["amount"]
-        can_raise = (isinstance(raise_action_info["amount"], dict) and
-                    raise_action_info["amount"]["max"] != -1)
+    Parameters
+    ----------
+    my_hole : list[str]
+        Two strings like 'SA', 'D3'.
+    community : list[str]
+        Already revealed community cards (0‑5 strings).
+    n_sim : int
+        Number of Monte‑Carlo iterations.
+    rng : numpy Random Generator
+    """
+    my_cards = [Card.from_str(s) for s in my_hole]
+    board = [Card.from_str(s) for s in community]
 
-        # 3. EV 计算（改进版）
-        # 改进call的EV计算
-        pot_odds = call_amt / (pot_size + call_amt)
-        ev_call = adjusted_equity * pot_size - (1 - adjusted_equity) * call_amt
-        
-        # 如果pot odds很好，大幅提高call的EV
-        if pot_odds < 0.3:  # 好的pot odds
-            ev_call *= 1.5
-        elif pot_odds < 0.5:  # 一般的pot odds
-            ev_call *= 1.2
+    known = {c.to_id() for c in my_cards + board}
+    deck_ids = [cid for cid in range(1, 53) if cid not in known]
 
-        ev_raise = -np.inf
-        raise_amt = 0
+    # How many community cards still to be dealt?
+    need_board = 5 - len(board)
+    draw_size = 2 + need_board  # 2 cards opp hole + remaining board
+
+    wins = 0.0
+    draws = rng.choice(deck_ids, size=(n_sim, draw_size), replace=False)
+    for row in draws:
+        opp_hole_ids = row[:2]
+        future_ids = row[2:]
+
+        opp_hole = [Card.from_id(int(cid)) for cid in opp_hole_ids]
+        final_board = board + [Card.from_id(int(cid)) for cid in future_ids]
+
+        my_score = HandEvaluator.eval_hand(my_cards, final_board)
+        opp_score = HandEvaluator.eval_hand(opp_hole, final_board)
+
+        if my_score > opp_score:
+            wins += 1.0
+        elif my_score == opp_score:
+            wins += 0.5  # split pot
+
+    return wins / n_sim
+
+
+# ---------------------------------------------------------------------------
+# Main player
+# ---------------------------------------------------------------------------
+
+class MonteCarloPlayer(BasePokerPlayer):
+    """A very small Monte‑Carlo poker bot that never folds."""
+
+    def __init__(self, n_simulations: int = 1500, raise_threshold: float = 0.60, seed: int | None = None):
+        super().__init__()
+        self.n_sim = n_simulations
+        self.raise_thr = raise_threshold
+        self.rng = np.random.default_rng(seed if seed is not None else random.randrange(2**32))
+
+    # ------------------------------------------------------------------
+    #  Core decision logic
+    # ------------------------------------------------------------------
+    def declare_action(self, valid_actions: List[dict], hole_card: List[str], round_state: dict) -> Tuple[str, int]:
+        """Choose between *call* and *raise* based on equity.
+
+        The function **never returns `fold`.** If a raise is not allowed, it will
+        always fall back to call.
+        """
+        # 1. Compute win probability
+        equity = _estimate_equity(hole_card, round_state["community_card"], self.n_sim, self.rng)
+
+        # 2. Extract action details
+        call_info = next(a for a in valid_actions if a["action"] == "call")
+        call_amount = int(call_info["amount"])
+
+        raise_info = next(a for a in valid_actions if a["action"] == "raise")
+        can_raise = isinstance(raise_info["amount"], dict) and raise_info["amount"]["max"] != -1
+        max_raise = int(raise_info["amount"]["max"]) if can_raise else -1
+
+        pot = round_state["pot"]["main"]["amount"]
+
+        # 3. Simple EV comparison
+        ev_call = equity * pot - (1 - equity) * call_amount
+        ev_raise = float("-inf")
         if can_raise:
-            raise_amt = raise_action_info["amount"]["max"]
-            # 根据equity动态调整对手跟注概率
-            call_prob = max(0.2, min(0.8, 1 - adjusted_equity))
-            ev_if_called = adjusted_equity * (pot_size + raise_amt) - (1 - adjusted_equity) * raise_amt
-            ev_if_fold = pot_size
-            ev_raise = call_prob * ev_if_called + (1 - call_prob) * ev_if_fold
+            # Go all‑in with max_raise for simplicity. Model opp calling 50%.
+            invest = max_raise
+            ev_if_called = equity * (pot + invest) - (1 - equity) * invest
+            ev_if_fold = pot  # opp folds, we win pot
+            ev_raise = 0.5 * ev_if_called + 0.5 * ev_if_fold
 
-        # 4. 决策逻辑（改进版）- 禁止fold
-        # 首先检查是否可以raise
-        if can_raise and adjusted_equity >= self.thr:
-            best_action, best_amt = "raise", raise_amt
-            print(f"[MC Player] Choosing RAISE because adjusted_equity ({adjusted_equity:.3f}) >= raise_thr ({self.thr})")
-        # 否则就call
+        # 4. Decision – never fold.
+        if can_raise and equity >= self.raise_thr and ev_raise >= ev_call:
+            action, amount = "raise", max_raise
         else:
-            best_action, best_amt = "call", call_amt
-            print(f"[MC Player] Choosing CALL because adjusted_equity ({adjusted_equity:.3f}) < raise_thr ({self.thr}) or cannot raise")
+            action, amount = "call", call_amount
 
-        # debug
-        print(f"[MC Player] pos={self.position} equity={equity:.3f}(adj={adjusted_equity:.3f}) "
-              f"pot={pot_size} pot_odds={pot_odds:.2f} "
-              f"EV(c/r)={[round(ev_call,1), round(ev_raise,1)]} "
-              f"→ {best_action.upper()}")
+        # Debug print (comment out to silence)
+        print(f"[MC] equity={equity:.3f} pot={pot} → {action.upper()} {amount}")
+        return action, amount
 
-        return best_action, best_amt
+    # ------------------------------------------------------------------
+    # Callbacks – keep console‑style signatures
+    # ------------------------------------------------------------------
 
-    # ─────────────────────────────────────────────────────────── #
-    def _equity(self, hole_card, round_state) -> float:
-        board = [Card.from_str(c) for c in round_state["community_card"]]
-        me    = [Card.from_str(c) for c in hole_card]
+    def receive_game_start_message(self, game_info):
+        print("[MC] Game start – stacks:", {p['name']: p['stack'] for p in game_info['seats']})
 
-        known = {c.to_id() for c in board + me}
-        deck  = [cid for cid in range(1, 53) if cid not in known]
+    def receive_round_start_message(self, round_count, hole_card, seats):
+        print(f"[MC] >>> ROUND {round_count} – hole: {hole_card}")
 
-        need   = 5 - len(board)            # 還缺幾張公共牌
-        sample = self.rng.choice(deck, size=(self.N, 2 + need), replace=False)
+    def receive_street_start_message(self, street, round_state):
+        print(f"[MC] --- street {street} community: {round_state['community_card']}")
 
-        wins = 0.0
-        for row in sample:
-            opp    = [Card.from_id(i) for i in row[:2]]
-            future = [Card.from_id(i) for i in row[2:]]
-            full_b = board + future
+    def receive_game_update_message(self, action, round_state):
+        pass  # we keep silent – could be used for future learning
 
-            my_s  = HandEvaluator.eval_hand(me,  full_b)
-            opp_s = HandEvaluator.eval_hand(opp, full_b)
-            if   my_s >  opp_s: wins += 1
-            elif my_s == opp_s: wins += 0.5
+    def receive_round_result_message(self, winners, hand_info, round_state):
+        print("[MC] Round result – stacks:", {p['name']: p['stack'] for p in round_state['seats']})
 
-        return wins / self.N
 
-    # 其它 callback 保留空函式
-    def receive_game_start_message(self, *a):    pass
-    def receive_round_start_message(self, *a):   pass
-    def receive_street_start_message(self, *a):  pass
-    def receive_game_update_message(self, *a):   pass
-    def receive_round_result_message(self, *a):  pass
-
+# Factory function ----------------------------------------------------------------
 
 def setup_ai():
-    return FastMonteCarloPlayer(num_simulations=2000,
-                                raise_threshold=0.55,
-                                rng_seed=None)
+    """Entry‑point used by the framework."""
+    return MonteCarloPlayer()
