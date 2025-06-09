@@ -4,6 +4,7 @@ from agents.call_player import setup_ai as call_ai
 from agents.random_player import setup_ai as random_ai
 from agents.console_player import setup_ai as console_ai
 from baseline0 import setup_ai as baseline0_ai
+from baseline1 import setup_ai as baseline1_ai
 from agents.Heuristic_player import setup_ai as heuristic_ai
 from agents.RL_player import setup_ai as RL_ai
 
