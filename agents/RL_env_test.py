@@ -1,6 +1,7 @@
 from RL_player import RLAgentPlayer
 from RL_model import PokerEnv
 import numpy as np
+import torch
 
 # 建立 RLAgentPlayer → 用學好的 model
 agent = RLAgentPlayer(model_path="poker_policy_net.pth")
