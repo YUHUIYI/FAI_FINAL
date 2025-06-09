@@ -1,8 +1,12 @@
+from RL_player import RLAgentPlayer
 from RL_model import PokerEnv
 import numpy as np
 
-# 建立環境
-env = PokerEnv()
+# 建立 RLAgentPlayer → 用學好的 model
+agent = RLAgentPlayer(model_path="poker_policy_net.pth")
+
+# 建立環境 → 傳入 agent
+env = PokerEnv(agent=agent)
 
 # reset → 取得初始 observation
 obs = env.reset()
@@ -12,8 +16,11 @@ print("Initial observation:", obs)
 done = False
 step_count = 0
 while not done:
-    # 隨機選 action 測試 (0=fold, 1=call, 2=raise)
-    action = np.random.choice(env.num_actions)
+    # 這次不要 random → 直接由 RLAgentPlayer 出 action
+    obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
+    q_values = agent.policy_net(obs_tensor)
+    action = torch.argmax(q_values).item()
+
     print(f"\nStep {step_count} - Action taken: {action}")
 
     obs, reward, done, info = env.step(action)
