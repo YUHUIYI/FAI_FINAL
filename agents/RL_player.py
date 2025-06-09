@@ -42,15 +42,13 @@ class RLAgentPlayer(BasePokerPlayer):
         self.final_stack = 0
 
     def declare_action(self, valid_actions, hole_card, round_state):
-        obs = self._state_to_feature(hole_card, round_state)
-        self.current_obs = obs
+        # 強制更新 obs → 一定是 5 維向量
+        self.current_obs = self._state_to_feature(hole_card, round_state)
 
-        if self.policy_net:
-            obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
-            q_values = self.policy_net(obs_tensor)
-            action_idx = torch.argmax(q_values).item()
-        else:
-            action_idx = self.next_action
+        # 以下照常選 action
+        obs_tensor = torch.tensor(self.current_obs, dtype=torch.float32).unsqueeze(0)
+        q_values = self.policy_net(obs_tensor)
+        action_idx = torch.argmax(q_values).item()
 
         action_info = valid_actions[action_idx]
         action, amount = action_info["action"], action_info["amount"]
@@ -59,6 +57,7 @@ class RLAgentPlayer(BasePokerPlayer):
             amount = amount["max"]
 
         return action, amount
+
 
     def _state_to_feature(self, hole_card, round_state):
         card_rank_dict = {
