@@ -24,33 +24,67 @@ class FastMonteCarloPlayer(BasePokerPlayer):
 
     # ─────────────────────────────────────────────────────────── #
     def declare_action(self, valid_actions, hole_card, round_state):
-        equity = self._equity(hole_card, round_state)
+        # 添加调试信息
+        print(f"[MC Player] Valid actions: {valid_actions}")
+        print(f"[MC Player] Hole cards: {hole_card}")
+        print(f"[MC Player] Round state: {round_state}")
+        
+        # 1. Monte-Carlo 估 equity
+        equity = self._estimate_equity(hole_card, round_state)   # 0-1
+        
+        # 根据位置调整equity
+        position_bonus = 0.05 if self.position == "BB" else 0.0
+        adjusted_equity = min(0.95, equity + position_bonus)
 
-        pot      = round_state["pot"]["main"]["amount"]
-        call_amt = next(a["amount"] for a in valid_actions if a["action"] == "call")
+        # 2. 取得彩池 & call / raise 資訊
+        pot_size = round_state["pot"]["main"]["amount"]
+        
+        # 直接使用索引获取动作信息
+        call_action_info = valid_actions[1]  # call是第二个动作
+        raise_action_info = valid_actions[2]  # raise是第三个动作
+        
+        call_amt = call_action_info["amount"]
+        can_raise = (isinstance(raise_action_info["amount"], dict) and
+                    raise_action_info["amount"]["max"] != -1)
 
-        raise_info = next(a for a in valid_actions if a["action"] == "raise")
-        can_raise  = isinstance(raise_info["amount"], dict) and raise_info["amount"]["max"] != -1
-
-        ev_call  = equity * pot - (1 - equity) * call_amt
+        # 3. EV 计算（改进版）
+        # 改进call的EV计算
+        pot_odds = call_amt / (pot_size + call_amt)
+        ev_call = adjusted_equity * pot_size - (1 - adjusted_equity) * call_amt
+        
+        # 如果pot odds很好，大幅提高call的EV
+        if pot_odds < 0.3:  # 好的pot odds
+            ev_call *= 1.5
+        elif pot_odds < 0.5:  # 一般的pot odds
+            ev_call *= 1.2
 
         ev_raise = -np.inf
         raise_amt = 0
         if can_raise:
-            raise_amt  = raise_info["amount"]["max"]         # 直接 all-in
-            opp_call_p = max(0.2, 1 - equity)                # 粗估對手跟注率
-            ev_called  = equity * (pot + raise_amt) - (1 - equity) * raise_amt
-            ev_raise   = opp_call_p * ev_called 
+            raise_amt = raise_action_info["amount"]["max"]
+            # 根据equity动态调整对手跟注概率
+            call_prob = max(0.2, min(0.8, 1 - adjusted_equity))
+            ev_if_called = adjusted_equity * (pot_size + raise_amt) - (1 - adjusted_equity) * raise_amt
+            ev_if_fold = pot_size
+            ev_raise = call_prob * ev_if_called + (1 - call_prob) * ev_if_fold
 
-        # 永遠不 fold
-        if can_raise and equity >= self.thr and ev_raise > ev_call:
-            action, amount = "raise", raise_amt
+        # 4. 决策逻辑（改进版）- 禁止fold
+        # 首先检查是否可以raise
+        if can_raise and adjusted_equity >= self.thr:
+            best_action, best_amt = "raise", raise_amt
+            print(f"[MC Player] Choosing RAISE because adjusted_equity ({adjusted_equity:.3f}) >= raise_thr ({self.thr})")
+        # 否则就call
         else:
-            action, amount = "call",  call_amt
+            best_action, best_amt = "call", call_amt
+            print(f"[MC Player] Choosing CALL because adjusted_equity ({adjusted_equity:.3f}) < raise_thr ({self.thr}) or cannot raise")
 
-        print(f"[FastMC] equity={equity:.3f}  pot={pot}  "
-              f"EV(call)={ev_call:.1f}  EV(raise)={ev_raise:.1f} → {action.upper()}")
-        return action, amount
+        # debug
+        print(f"[MC Player] pos={self.position} equity={equity:.3f}(adj={adjusted_equity:.3f}) "
+              f"pot={pot_size} pot_odds={pot_odds:.2f} "
+              f"EV(c/r)={[round(ev_call,1), round(ev_raise,1)]} "
+              f"→ {best_action.upper()}")
+
+        return best_action, best_amt
 
     # ─────────────────────────────────────────────────────────── #
     def _equity(self, hole_card, round_state) -> float:
