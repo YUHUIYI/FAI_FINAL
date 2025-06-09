@@ -15,4 +15,3 @@ config.register_player(name="p2", algorithm=heuristic_ai())
 game_result = start_poker(config, verbose=1)
 
 print(json.dumps(game_result, indent=4))
-print(algorithm)
