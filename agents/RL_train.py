@@ -19,7 +19,7 @@ class PolicyNet(nn.Module):
         return x
 
 # 超參數
-num_episodes = 5000
+num_episodes = 1000
 gamma = 0.99
 learning_rate = 1e-3
 
