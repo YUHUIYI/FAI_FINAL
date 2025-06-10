@@ -15,8 +15,8 @@ from agents.MC_player import setup_ai as MC_ai
 
 # baseline list
 baseline_ai_list = [
-    ("baseline0", baseline0_ai),
-    #("baseline1", baseline1_ai),
+    #("baseline0", baseline0_ai),
+    ("baseline1", baseline1_ai),
     #("baseline2", baseline2_ai),
     #("baseline3", baseline3_ai),
     #("baseline4", baseline4_ai),
