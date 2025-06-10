@@ -50,12 +50,14 @@ class MonteCarloPlayer(BasePokerPlayer):
             pass
 
     def receive_game_update_message(self, new_action, round_state):
-        if self.verbose:
-            print(U.visualize_game_update(new_action, round_state, self.uuid))
+        #if self.verbose:
+            #print(U.visualize_game_update(new_action, round_state, self.uuid))
+            pass
 
     def receive_round_result_message(self, winners, hand_info, round_state):
-        if self.verbose:
-            print(U.visualize_round_result(winners, hand_info, round_state, self.uuid))
+        #if self.verbose:
+            #print(U.visualize_round_result(winners, hand_info, round_state, self.uuid))
+            pass
 
     def _calculate_win_probability(self, hole_cards, round_state):
         community_cards = round_state.get('community_card', [])
