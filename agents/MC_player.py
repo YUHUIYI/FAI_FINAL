@@ -15,6 +15,10 @@ class MonteCarloPlayer(BasePokerPlayer):
         self.card_ranks = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
         self.card_suits = ['C', 'D', 'H', 'S']  # Clubs, Diamonds, Hearts, Spades
 
+    def _convert_to_card_objects(self, cards):
+        """将字符串格式的牌转换为Card对象"""
+        return [Card.from_str(card) for card in cards]
+
     def declare_action(self, valid_actions, hole_card, round_state):
         win_probability = self._calculate_win_probability(hole_card, round_state)
         action, amount = self._decide_action(valid_actions, win_probability, round_state)
@@ -46,51 +50,136 @@ class MonteCarloPlayer(BasePokerPlayer):
         pass
 
     def _calculate_win_probability(self, hole_cards, round_state):
+        """使用Monte Carlo模拟计算获胜概率，使用HandEvaluator进行准确的牌型比较"""
         community_cards = round_state.get('community_card', [])
         num_players = len([seat for seat in round_state.get('seats', []) if seat['state'] != 'folded'])
-
+        
+        # 转换为Card对象
+        hole_cards = self._convert_to_card_objects(hole_cards)
+        community_cards = self._convert_to_card_objects(community_cards)
+        
         wins = 0
-
+        
         for _ in range(self.num_simulations):
+            # 创建剩余牌组
             remaining_deck = self._get_remaining_deck(hole_cards, community_cards)
+            
+            # 模拟对手手牌
             opponent_hands = self._simulate_opponent_hands(remaining_deck, num_players - 1)
+            
+            # 完成公共牌
             simulated_community = self._complete_community_cards(remaining_deck, community_cards)
-
-            # 使用HandEvaluator来比较牌型
-            my_hand_strength = HandEvaluator.eval_hand(hole_cards, simulated_community)
-            opponent_strengths = [HandEvaluator.eval_hand(hand, simulated_community) for hand in opponent_hands]
-
-            if all(my_hand_strength > opp_strength for opp_strength in opponent_strengths):
+            
+            # 使用HandEvaluator评估手牌强度
+            my_hand_score = HandEvaluator.eval_hand(hole_cards, simulated_community)
+            opponent_scores = [
+                HandEvaluator.eval_hand(hand, simulated_community)
+                for hand in opponent_hands
+            ]
+            
+            # 检查是否获胜（考虑踢脚牌）
+            if all(my_hand_score > opp_score for opp_score in opponent_scores):
                 wins += 1
-
+        
         return wins / self.num_simulations
 
     def _get_remaining_deck(self, hole_cards, community_cards):
-        all_cards = [rank + suit for rank in self.card_ranks for suit in self.card_suits]
+        """获取剩余牌组"""
+        all_cards = [Card.from_str(rank + suit) for rank in self.card_ranks for suit in self.card_suits]
         used_cards = set(hole_cards + community_cards)
         return [card for card in all_cards if card not in used_cards]
 
     def _simulate_opponent_hands(self, deck, num_opponents):
+        """模拟对手手牌"""
         available_cards = deck.copy()
         opponent_hands = []
-
+        
         for _ in range(num_opponents):
             if len(available_cards) >= 2:
                 hand = random.sample(available_cards, 2)
                 opponent_hands.append(hand)
+                # 移除已使用的牌
                 for card in hand:
                     available_cards.remove(card)
-
+        
         return opponent_hands
 
     def _complete_community_cards(self, deck, existing_community):
+        """完成公共牌到5张"""
         cards_needed = 5 - len(existing_community)
         if cards_needed <= 0:
             return existing_community
-
+        
         available_cards = [card for card in deck if card not in existing_community]
         additional_cards = random.sample(available_cards, min(cards_needed, len(available_cards)))
         return existing_community + additional_cards
+
+    def _evaluate_hand(self, seven_cards):
+        if len(seven_cards) < 5:
+            return 0
+
+        best_score = 0
+        for five_cards in itertools.combinations(seven_cards, 5):
+            score = self._score_hand(list(five_cards))
+            best_score = max(best_score, score)
+
+        return best_score
+
+    def _score_hand(self, five_cards):
+        ranks = [self._rank_to_number(card[0]) for card in five_cards]
+        suits = [card[1] for card in five_cards]
+
+        ranks.sort(reverse=True)
+        rank_counts = Counter(ranks)
+        is_flush = len(set(suits)) == 1
+        is_straight = self._is_straight(ranks)
+
+        if is_straight and is_flush:
+            if ranks == [14, 13, 12, 11, 10]:
+                return 9000 + max(ranks)
+            else:
+                return 8000 + max(ranks)
+        elif 4 in rank_counts.values():
+            four_kind = [rank for rank, count in rank_counts.items() if count == 4][0]
+            return 7000 + four_kind
+        elif 3 in rank_counts.values() and 2 in rank_counts.values():
+            three_kind = [rank for rank, count in rank_counts.items() if count == 3][0]
+            pair = [rank for rank, count in rank_counts.items() if count == 2][0]
+            return 6000 + three_kind * 20 + pair
+        elif is_flush:
+            return 5000 + sum(ranks)
+        elif is_straight:
+            return 4000 + max(ranks)
+        elif 3 in rank_counts.values():
+            three_kind = [rank for rank, count in rank_counts.items() if count == 3][0]
+            return 3000 + three_kind
+        elif list(rank_counts.values()).count(2) == 2:
+            pairs = sorted([rank for rank, count in rank_counts.items() if count == 2], reverse=True)
+            return 2000 + pairs[0] * 20 + pairs[1]
+        elif 2 in rank_counts.values():
+            pair = [rank for rank, count in rank_counts.items() if count == 2][0]
+            return 1000 + pair
+        else:
+            return max(ranks)
+
+    def _rank_to_number(self, rank):
+        rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+                    '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+        return rank_map.get(rank, 0)
+
+    def _is_straight(self, ranks):
+        ranks = sorted(set(ranks), reverse=True)
+        if len(ranks) < 5:
+            return False
+
+        for i in range(len(ranks) - 4):
+            if ranks[i] - ranks[i + 4] == 4:
+                return True
+
+        if set([14, 5, 4, 3, 2]).issubset(set(ranks)):
+            return True
+
+        return False
 
     def _decide_action(self, valid_actions, win_probability, round_state):
         fold_action = valid_actions[0]
