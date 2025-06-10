@@ -15,17 +15,17 @@ from agents.MC_player import setup_ai as MC_ai
 
 # baseline list
 baseline_ai_list = [
-    #("baseline0", baseline0_ai),
+    ("baseline0", baseline0_ai),
     #("baseline1", baseline1_ai),
     #("baseline2", baseline2_ai),
     #("baseline3", baseline3_ai),
-    ("baseline4", baseline4_ai),
+    #("baseline4", baseline4_ai),
     #("baseline5", baseline5_ai),
     #("baseline6", baseline6_ai),
     #("baseline7", baseline7_ai)
 ]
 
-def evaluate_MC_agent_vs_baselines(num_games_per_baseline=5):
+def evaluate_MC_agent_vs_baselines(num_games_per_baseline=20):
     # summary 結果
     results_summary = {}
 
@@ -79,4 +79,4 @@ def evaluate_MC_agent_vs_baselines(num_games_per_baseline=5):
         print(f"MC agent vs {baseline_name}: win rate = {win_rate:.2f}%")
 
 if __name__ == "__main__":
-    evaluate_MC_agent_vs_baselines(num_games_per_baseline=5)
+    evaluate_MC_agent_vs_baselines(num_games_per_baseline=20)
