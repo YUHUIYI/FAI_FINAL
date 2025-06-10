@@ -16,17 +16,23 @@ class MonteCarloPlayer(BasePokerPlayer):
         self.card_suits = ['C', 'D', 'H', 'S']  # Clubs, Diamonds, Hearts, Spades
 
     def declare_action(self, valid_actions, hole_card, round_state):
-        win_probability = self._calculate_win_probability(hole_card, round_state)
-        action, amount = self._decide_action(valid_actions, win_probability, round_state)
+        try:
+            win_probability = self._calculate_win_probability(hole_card, round_state)
+            action, amount = self._decide_action(valid_actions, win_probability, round_state)
 
-        if self.verbose:
-            print(f"Monte Carlo分析:")
-            print(f"手牌: {hole_card}")
-            print(f"獲勝機率: {win_probability:.2%}")
-            print(f"決定動作: {action}, 金額: {amount}")
-            print(U.visualize_declare_action(valid_actions, hole_card, round_state, self.uuid))
+            if self.verbose:
+                print(f"Monte Carlo分析:")
+                print(f"手牌: {hole_card}")
+                print(f"獲勝機率: {win_probability:.2%}")
+                print(f"決定動作: {action}, 金額: {amount}")
+                print(U.visualize_declare_action(valid_actions, hole_card, round_state, self.uuid))
 
-        return action, amount
+            return action, amount
+        except Exception as e:
+            if self.verbose:
+                print(f"錯誤: {str(e)}")
+            # 如果發生錯誤，選擇最安全的動作
+            return valid_actions[0]["action"], valid_actions[0]["amount"]
 
     def receive_game_start_message(self, game_info):
         if self.verbose:
@@ -50,20 +56,30 @@ class MonteCarloPlayer(BasePokerPlayer):
         num_players = len([seat for seat in round_state.get('seats', []) if seat['state'] != 'folded'])
 
         # 轉換牌型格式
-        hole_cards = [Card.from_str(card) for card in hole_cards]
-        community_cards = [Card.from_str(card) for card in community_cards]
+        try:
+            hole_cards = [Card.from_str(card) for card in hole_cards]
+            community_cards = [Card.from_str(card) for card in community_cards]
+        except Exception as e:
+            if self.verbose:
+                print(f"牌型轉換錯誤: {str(e)}")
+            return 0.0
 
         wins = 0
         for _ in range(self.num_simulations):
-            remaining_deck = self._get_remaining_deck(hole_cards, community_cards)
-            opponent_hands = self._simulate_opponent_hands(remaining_deck, num_players - 1)
-            simulated_community = self._complete_community_cards(remaining_deck, community_cards)
+            try:
+                remaining_deck = self._get_remaining_deck(hole_cards, community_cards)
+                opponent_hands = self._simulate_opponent_hands(remaining_deck, num_players - 1)
+                simulated_community = self._complete_community_cards(remaining_deck, community_cards)
 
-            my_hand_strength = HandEvaluator.eval_hand(hole_cards, simulated_community)
-            opponent_strengths = [HandEvaluator.eval_hand(hand, simulated_community) for hand in opponent_hands]
+                my_hand_strength = HandEvaluator.eval_hand(hole_cards, simulated_community)
+                opponent_strengths = [HandEvaluator.eval_hand(hand, simulated_community) for hand in opponent_hands]
 
-            if all(my_hand_strength > opp_strength for opp_strength in opponent_strengths):
-                wins += 1
+                if all(my_hand_strength > opp_strength for opp_strength in opponent_strengths):
+                    wins += 1
+            except Exception as e:
+                if self.verbose:
+                    print(f"模擬錯誤: {str(e)}")
+                continue
 
         return wins / self.num_simulations
 
@@ -71,9 +87,14 @@ class MonteCarloPlayer(BasePokerPlayer):
         all_cards = []
         for rank in self.card_ranks:
             for suit in self.card_suits:
-                card = Card.from_str(rank + suit)
-                if card not in hole_cards and card not in community_cards:
-                    all_cards.append(card)
+                try:
+                    card = Card.from_str(rank + suit)
+                    if card not in hole_cards and card not in community_cards:
+                        all_cards.append(card)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"創建牌錯誤: {str(e)}")
+                    continue
         return all_cards
 
     def _simulate_opponent_hands(self, deck, num_opponents):
