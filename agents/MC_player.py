@@ -121,9 +121,9 @@ class MonteCarloPlayer(BasePokerPlayer):
         community = round_state.get('community_card', [])
 
         # 模擬次數：前街多，後街少
-        sims = { 'preflop': self.base_simulations*20,
-                 'flop'   : self.base_simulations*5,
-                 'turn'   : self.base_simulations*2,
+        sims = { 'preflop': self.base_simulations,
+                 'flop'   : self.base_simulations,
+                 'turn'   : self.base_simulations,
                  'river'  : self.base_simulations }.get(street, self.base_simulations)
 
         # 轉換格式
