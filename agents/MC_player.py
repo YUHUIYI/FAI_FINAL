@@ -35,16 +35,19 @@ class MonteCarloPlayer(BasePokerPlayer):
             return valid_actions[0]["action"], valid_actions[0]["amount"]
 
     def receive_game_start_message(self, game_info):
-        if self.verbose:
-            print(U.visualize_game_start(game_info, self.uuid))
+        #if self.verbose:
+            #print(U.visualize_game_start(game_info, self.uuid))
+            pass
 
     def receive_round_start_message(self, round_count, hole_card, seats):
-        if self.verbose:
-            print(U.visualize_round_start(round_count, hole_card, seats, self.uuid))
+        #if self.verbose:
+            #print(U.visualize_round_start(round_count, hole_card, seats, self.uuid))
+            pass
 
     def receive_street_start_message(self, street, round_state):
-        if self.verbose:
-            print(U.visualize_street_start(street, round_state, self.uuid))
+        #if self.verbose:
+            #print(U.visualize_street_start(street, round_state, self.uuid))
+            pass
 
     def receive_game_update_message(self, new_action, round_state):
         if self.verbose:
