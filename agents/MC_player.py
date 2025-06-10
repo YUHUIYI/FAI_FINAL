@@ -52,17 +52,19 @@ def estimate_fold_equity(pot, raise_amt):
 
 # ---------- 主體 ----------
 class MonteCarloPlayer(BasePokerPlayer):
-    CARD_RANKS = '23456789TJQKA'
-    CARD_SUITS = 'CDHS'
-
-    STATIC_DECK = [Card.from_str(s + r) for s in CARD_SUITS for r in CARD_RANKS]
-
     # ------------------------
     # 可調參數
     # ------------------------
     BASE_SIMS = 1_000         # Turn / River 模擬次數
     PREFLOP_CHEN_MIN = 8.0    # 低於門檻直接 fold/limp
     VERBOSE = True
+
+    # 牌組常量
+    CARD_RANKS = '23456789TJQKA'
+    CARD_SUITS = 'CDHS'
+
+    def __init__(self):
+        self.STATIC_DECK = [Card.from_str(s + r) for s in self.CARD_SUITS for r in self.CARD_RANKS]
 
     # ------------------------
     # 入口
