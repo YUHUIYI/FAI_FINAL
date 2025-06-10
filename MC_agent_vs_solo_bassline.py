@@ -25,7 +25,7 @@ baseline_ai_list = [
     #("baseline7", baseline7_ai)
 ]
 
-def evaluate_MC_agent_vs_baselines(num_games_per_baseline=20):
+def evaluate_MC_agent_vs_baselines(num_games_per_baseline):
     # summary 結果
     results_summary = {}
 
@@ -79,4 +79,4 @@ def evaluate_MC_agent_vs_baselines(num_games_per_baseline=20):
         print(f"MC agent vs {baseline_name}: win rate = {win_rate:.2f}%")
 
 if __name__ == "__main__":
-    evaluate_MC_agent_vs_baselines(num_games_per_baseline=20)
+    evaluate_MC_agent_vs_baselines(num_games_per_baseline=5)
