@@ -4,6 +4,8 @@ from collections import Counter
 from math import exp
 import game.visualize_utils as U
 from game.players import BasePokerPlayer
+from game.engine.hand_evaluator import HandEvaluator
+from game.engine.card import Card
 
 
 class MonteCarloPlayer(BasePokerPlayer):
@@ -54,8 +56,9 @@ class MonteCarloPlayer(BasePokerPlayer):
             opponent_hands = self._simulate_opponent_hands(remaining_deck, num_players - 1)
             simulated_community = self._complete_community_cards(remaining_deck, community_cards)
 
-            my_hand_strength = self._evaluate_hand(hole_cards + simulated_community)
-            opponent_strengths = [self._evaluate_hand(hand + simulated_community) for hand in opponent_hands]
+            # 使用HandEvaluator来比较牌型
+            my_hand_strength = HandEvaluator.eval_hand(hole_cards, simulated_community)
+            opponent_strengths = [HandEvaluator.eval_hand(hand, simulated_community) for hand in opponent_hands]
 
             if all(my_hand_strength > opp_strength for opp_strength in opponent_strengths):
                 wins += 1
@@ -88,73 +91,6 @@ class MonteCarloPlayer(BasePokerPlayer):
         available_cards = [card for card in deck if card not in existing_community]
         additional_cards = random.sample(available_cards, min(cards_needed, len(available_cards)))
         return existing_community + additional_cards
-
-    def _evaluate_hand(self, seven_cards):
-        if len(seven_cards) < 5:
-            return 0
-
-        best_score = 0
-        for five_cards in itertools.combinations(seven_cards, 5):
-            score = self._score_hand(list(five_cards))
-            best_score = max(best_score, score)
-
-        return best_score
-
-    def _score_hand(self, five_cards):
-        ranks = [self._rank_to_number(card[0]) for card in five_cards]
-        suits = [card[1] for card in five_cards]
-
-        ranks.sort(reverse=True)
-        rank_counts = Counter(ranks)
-        is_flush = len(set(suits)) == 1
-        is_straight = self._is_straight(ranks)
-
-        if is_straight and is_flush:
-            if ranks == [14, 13, 12, 11, 10]:
-                return 9000 + max(ranks)
-            else:
-                return 8000 + max(ranks)
-        elif 4 in rank_counts.values():
-            four_kind = [rank for rank, count in rank_counts.items() if count == 4][0]
-            return 7000 + four_kind
-        elif 3 in rank_counts.values() and 2 in rank_counts.values():
-            three_kind = [rank for rank, count in rank_counts.items() if count == 3][0]
-            pair = [rank for rank, count in rank_counts.items() if count == 2][0]
-            return 6000 + three_kind * 20 + pair
-        elif is_flush:
-            return 5000 + sum(ranks)
-        elif is_straight:
-            return 4000 + max(ranks)
-        elif 3 in rank_counts.values():
-            three_kind = [rank for rank, count in rank_counts.items() if count == 3][0]
-            return 3000 + three_kind
-        elif list(rank_counts.values()).count(2) == 2:
-            pairs = sorted([rank for rank, count in rank_counts.items() if count == 2], reverse=True)
-            return 2000 + pairs[0] * 20 + pairs[1]
-        elif 2 in rank_counts.values():
-            pair = [rank for rank, count in rank_counts.items() if count == 2][0]
-            return 1000 + pair
-        else:
-            return max(ranks)
-
-    def _rank_to_number(self, rank):
-        rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-                    '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
-        return rank_map.get(rank, 0)
-
-    def _is_straight(self, ranks):
-        ranks = sorted(set(ranks), reverse=True)
-        if len(ranks) < 5:
-            return False
-
-        for i in range(len(ranks) - 4):
-            if ranks[i] - ranks[i + 4] == 4:
-                return True
-
-        if set([14, 5, 4, 3, 2]).issubset(set(ranks)):
-            return True
-
-        return False
 
     def _decide_action(self, valid_actions, win_probability, round_state):
         fold_action = valid_actions[0]
