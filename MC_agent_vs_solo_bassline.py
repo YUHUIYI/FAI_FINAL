@@ -20,8 +20,8 @@ baseline_ai_list = [
     #("baseline2", baseline2_ai),
     #("baseline3", baseline3_ai),
     #("baseline4", baseline4_ai),
-    #("baseline5", baseline5_ai),
-    ("baseline6", baseline6_ai),
+    ("baseline5", baseline5_ai),
+    #("baseline6", baseline6_ai),
     #("baseline7", baseline7_ai)
 ]
 
