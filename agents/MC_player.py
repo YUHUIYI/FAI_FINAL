@@ -153,7 +153,7 @@ class MonteCarloPlayer(BasePokerPlayer):
         return (wins + 0.5 * ties) / sims if sims else 0.0
 
     # ===========================================================
-    # 2) 行動決策：EV-based Call、三檔 Raise、FoldEquity + Bluff + Aggressive tuning
+    # 2) 行動決策：EV-based Call、三檔 Raise、FoldEquity + Dynamic Bluff + Dynamic Fold
     # ===========================================================
     def _decide(self, valid_actions, win_prob, pot, call_amt, rs):
         fold_act, call_act = valid_actions[:2]
@@ -168,29 +168,38 @@ class MonteCarloPlayer(BasePokerPlayer):
         opp_max_stack = max(s["stack"] for s in rs["seats"] if s["uuid"] != self.uuid and s["state"] != "folded")
         score_diff = me_stack - opp_max_stack
 
-        # Aggression Multiplier + bluff rate
-        if score_diff < -200:
-            aggr_mult = 1.5
-            bluff_rate = 0.12
+        # Aggression Multiplier + bluff rate + fold margin limit
+        if score_diff < -400:
+            aggr_mult = 2.0
+            bluff_rate = 0.20
+            margin_limit = -0.10
+        elif score_diff < -200:
+            aggr_mult = 1.7
+            bluff_rate = 0.15
+            margin_limit = -0.07
         elif score_diff < -50:
-            aggr_mult = 1.2
-            bluff_rate = 0.08
+            aggr_mult = 1.3
+            bluff_rate = 0.10
+            margin_limit = -0.05
         elif score_diff < 50:
             aggr_mult = 1.0
             bluff_rate = 0.05
+            margin_limit = -0.02
         elif score_diff < 200:
             aggr_mult = 0.9
             bluff_rate = 0.03
+            margin_limit = -0.01
         else:
             aggr_mult = 0.8
             bluff_rate = 0.02
+            margin_limit = 0.0  # 領先多 → 嚴格 fold
 
-        # ---------- 嘗試 bluff (新) ----------
+        # ---------- 嘗試 bluff ----------
         if can_raise and random.random() < bluff_rate:
             bluff_amt = self._select_raise(raise_act, 0.4, pot, rs, aggr_mult)  # 假裝 40% 勝率 bluff
             if bluff_amt:
                 if self.VERBOSE:
-                    print(f"[Bluff activated] Bluff_rate={bluff_rate:.2f}, Agg_mult={aggr_mult:.2f}")
+                    print(f"[Bluff activated] Bluff_rate={bluff_rate:.2f}, Agg_mult={aggr_mult:.2f}, Margin_limit={margin_limit:.2f}")
                 return raise_act["action"], bluff_amt
 
         # ---------- 嘗試加注 ----------
@@ -206,11 +215,12 @@ class MonteCarloPlayer(BasePokerPlayer):
                 if eff_wp - pot_odds > 0.05:
                     return raise_act["action"], raise_amt
 
-        # ---------- EV-based Call / Fold ----------
+        # ---------- EV-based Call / Fold (Dynamic Margin Limit) ----------
         ev = win_prob * (pot + call_amt) - (1 - win_prob) * call_amt
-        if ev > 0 and margin > -0.02:
+        if ev > 0 and margin > margin_limit:
             return call_act["action"], call_amt
         return fold_act["action"], fold_act["amount"]
+
 
     # ===========================================================
     # 3) 三檔 Raise Sizing：Pre-flop 特調，Post-flop Pot 基準 + Agg Mult
