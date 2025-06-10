@@ -4,6 +4,8 @@ from collections import Counter
 from math import exp
 import game.visualize_utils as U
 from game.players import BasePokerPlayer
+from game.engine.hand_evaluator import HandEvaluator
+from game.engine.card import Card
 
 
 class MonteCarloPlayer(BasePokerPlayer):
@@ -12,6 +14,113 @@ class MonteCarloPlayer(BasePokerPlayer):
         self.verbose = verbose
         self.card_ranks = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
         self.card_suits = ['C', 'D', 'H', 'S']  # Clubs, Diamonds, Hearts, Spades
+
+    def _convert_to_card(self, card_str):
+        """将字符串转换为Card对象"""
+        rank = card_str[0]
+        suit = card_str[1]
+        rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+                   '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+        suit_map = {'C': 0, 'D': 1, 'H': 2, 'S': 3}
+        return Card(rank_map[rank], suit_map[suit])
+
+    def _calculate_win_probability(self, hole_cards, round_state):
+        """使用Monte Carlo模擬計算獲勝機率"""
+        community_cards = round_state.get('community_card', [])
+        
+        # 转换手牌和公共牌为Card对象
+        hole_cards = [self._convert_to_card(card) for card in hole_cards]
+        community_cards = [self._convert_to_card(card) for card in community_cards]
+        
+        # 获取当前未弃牌的玩家数量
+        active_players = [seat for seat in round_state.get('seats', []) if seat['state'] != 'folded']
+        num_players = len(active_players)
+        
+        # 如果只剩一个玩家，直接返回100%胜率
+        if num_players == 1:
+            return 1.0
+            
+        # 获取当前玩家的位置信息
+        my_seat = next((seat for seat in active_players if seat['uuid'] == self.uuid), None)
+        if not my_seat:
+            return 0.0
+            
+        wins = 0
+        ties = 0
+        
+        for _ in range(self.num_simulations):
+            # 创建剩余牌组
+            remaining_deck = self._get_remaining_deck(hole_cards, community_cards)
+            
+            # 模拟对手手牌
+            opponent_hands = self._simulate_opponent_hands(remaining_deck, num_players - 1)
+            
+            # 完成公共牌
+            simulated_community = self._complete_community_cards(remaining_deck, community_cards)
+            
+            # 使用HandEvaluator评估手牌强度
+            my_hand_strength = HandEvaluator.eval_hand(hole_cards, simulated_community)
+            opponent_strengths = [
+                HandEvaluator.eval_hand(hand, simulated_community) 
+                for hand in opponent_hands
+            ]
+            
+            # 检查是否获胜或平局
+            if all(my_hand_strength > opp_strength for opp_strength in opponent_strengths):
+                wins += 1
+            elif all(my_hand_strength == opp_strength for opp_strength in opponent_strengths):
+                ties += 1
+        
+        # 计算胜率（包括平局）
+        win_rate = (wins + ties/2) / self.num_simulations
+        
+        # 根据位置调整胜率
+        position = my_seat.get('position', '')
+        if position == 'BB':  # 大盲位
+            win_rate = min(0.95, win_rate * 1.1)  # 提高10%的胜率
+        elif position == 'SB':  # 小盲位
+            win_rate = min(0.95, win_rate * 1.05)  # 提高5%的胜率
+            
+        # 确保胜率在合理范围内
+        win_rate = max(0.2, min(0.9, win_rate))
+        
+        if self.verbose:
+            print(f"[MC Player] 模拟结果: 胜={wins}, 平={ties}, 总={self.num_simulations}")
+            print(f"[MC Player] 原始胜率: {(wins + ties/2) / self.num_simulations:.2%}")
+            print(f"[MC Player] 调整后胜率: {win_rate:.2%}")
+            
+        return win_rate
+
+    def _get_remaining_deck(self, hole_cards, community_cards):
+        """获取剩余牌组"""
+        all_cards = [rank + suit for rank in self.card_ranks for suit in self.card_suits]
+        used_cards = set(str(card.rank) + self.card_suits[card.suit] for card in hole_cards + community_cards)
+        return [card for card in all_cards if card not in used_cards]
+
+    def _simulate_opponent_hands(self, deck, num_opponents):
+        """模拟对手手牌"""
+        available_cards = deck.copy()
+        opponent_hands = []
+        
+        for _ in range(num_opponents):
+            if len(available_cards) >= 2:
+                hand = random.sample(available_cards, 2)
+                opponent_hands.append([self._convert_to_card(card) for card in hand])
+                # 移除已使用的牌
+                for card in hand:
+                    available_cards.remove(card)
+        
+        return opponent_hands
+
+    def _complete_community_cards(self, deck, existing_community):
+        """完成公共牌到5张"""
+        cards_needed = 5 - len(existing_community)
+        if cards_needed <= 0:
+            return existing_community
+        
+        available_cards = [card for card in deck if card not in existing_community]
+        additional_cards = random.sample(available_cards, min(cards_needed, len(available_cards)))
+        return existing_community + [self._convert_to_card(card) for card in additional_cards]
 
     def declare_action(self, valid_actions, hole_card, round_state):
         win_probability = self._calculate_win_probability(hole_card, round_state)
@@ -42,167 +151,6 @@ class MonteCarloPlayer(BasePokerPlayer):
 
     def receive_round_result_message(self, winners, hand_info, round_state):
         pass
-
-    def _calculate_win_probability(self, hole_cards, round_state):
-        community_cards = round_state.get('community_card', [])
-        num_players = len([seat for seat in round_state.get('seats', []) if seat['state'] != 'folded'])
-
-        wins = 0
-
-        for _ in range(self.num_simulations):
-            remaining_deck = self._get_remaining_deck(hole_cards, community_cards)
-            opponent_hands = self._simulate_opponent_hands(remaining_deck, num_players - 1)
-            simulated_community = self._complete_community_cards(remaining_deck, community_cards)
-
-            my_hand_strength = self._evaluate_hand(hole_cards + simulated_community)
-            opponent_strengths = [self._evaluate_hand(hand + simulated_community) for hand in opponent_hands]
-
-            if all(my_hand_strength > opp_strength for opp_strength in opponent_strengths):
-                wins += 1
-
-        return wins / self.num_simulations
-
-    def _get_remaining_deck(self, hole_cards, community_cards):
-        all_cards = [rank + suit for rank in self.card_ranks for suit in self.card_suits]
-        used_cards = set(hole_cards + community_cards)
-        return [card for card in all_cards if card not in used_cards]
-
-    def _simulate_opponent_hands(self, deck, num_opponents):
-        available_cards = deck.copy()
-        opponent_hands = []
-
-        for _ in range(num_opponents):
-            if len(available_cards) >= 2:
-                hand = random.sample(available_cards, 2)
-                opponent_hands.append(hand)
-                for card in hand:
-                    available_cards.remove(card)
-
-        return opponent_hands
-
-    def _complete_community_cards(self, deck, existing_community):
-        cards_needed = 5 - len(existing_community)
-        if cards_needed <= 0:
-            return existing_community
-
-        available_cards = [card for card in deck if card not in existing_community]
-        additional_cards = random.sample(available_cards, min(cards_needed, len(available_cards)))
-        return existing_community + additional_cards
-
-    def _evaluate_hand(self, seven_cards):
-        """评估7张牌中最好的5张牌组合"""
-        if len(seven_cards) < 5:
-            return 0
-
-        # 定义牌型常量
-        HIGHCARD = 0
-        ONEPAIR = 1 << 8
-        TWOPAIR = 1 << 9
-        THREECARD = 1 << 10
-        STRAIGHT = 1 << 11
-        FLASH = 1 << 12
-        FULLHOUSE = 1 << 13
-        FOURCARD = 1 << 14
-        STRAIGHTFLASH = 1 << 15
-
-        best_score = 0
-        # 从7张牌中选出5张牌的所有组合
-        for five_cards in itertools.combinations(seven_cards, 5):
-            score = self._score_hand(list(five_cards))
-            best_score = max(best_score, score)
-
-        return best_score
-
-    def _score_hand(self, five_cards):
-        """为5张牌组合评分"""
-        # 定义牌型常量
-        HIGHCARD = 0
-        ONEPAIR = 1 << 8
-        TWOPAIR = 1 << 9
-        THREECARD = 1 << 10
-        STRAIGHT = 1 << 11
-        FLASH = 1 << 12
-        FULLHOUSE = 1 << 13
-        FOURCARD = 1 << 14
-        STRAIGHTFLASH = 1 << 15
-
-        # 获取牌面值和花色
-        ranks = [self._rank_to_number(card[0]) for card in five_cards]
-        suits = [card[1] for card in five_cards]
-
-        # 按牌面值排序
-        ranks.sort(reverse=True)
-        rank_counts = Counter(ranks)
-        
-        # 检查同花
-        is_flush = len(set(suits)) == 1
-        
-        # 检查顺子
-        is_straight = self._is_straight(ranks)
-
-        # 计算牌型分数
-        if is_straight and is_flush:
-            # 同花顺
-            if ranks == [14, 13, 12, 11, 10]:  # 皇家同花顺
-                return STRAIGHTFLASH | (14 << 4)
-            else:
-                return STRAIGHTFLASH | (max(ranks) << 4)
-        elif 4 in rank_counts.values():
-            # 四条
-            four_rank = [rank for rank, count in rank_counts.items() if count == 4][0]
-            kicker = [rank for rank in ranks if rank != four_rank][0]
-            return FOURCARD | (four_rank << 4) | kicker
-        elif 3 in rank_counts.values() and 2 in rank_counts.values():
-            # 葫芦
-            three_rank = [rank for rank, count in rank_counts.items() if count == 3][0]
-            pair_rank = [rank for rank, count in rank_counts.items() if count == 2][0]
-            return FULLHOUSE | (three_rank << 4) | pair_rank
-        elif is_flush:
-            # 同花
-            return FLASH | (ranks[0] << 4) | (ranks[1] << 3) | (ranks[2] << 2) | (ranks[3] << 1) | ranks[4]
-        elif is_straight:
-            # 顺子
-            return STRAIGHT | (max(ranks) << 4)
-        elif 3 in rank_counts.values():
-            # 三条
-            three_rank = [rank for rank, count in rank_counts.items() if count == 3][0]
-            kickers = sorted([rank for rank in ranks if rank != three_rank], reverse=True)
-            return THREECARD | (three_rank << 4) | (kickers[0] << 3) | (kickers[1] << 2)
-        elif list(rank_counts.values()).count(2) == 2:
-            # 两对
-            pairs = sorted([rank for rank, count in rank_counts.items() if count == 2], reverse=True)
-            kicker = [rank for rank in ranks if rank not in pairs][0]
-            return TWOPAIR | (pairs[0] << 4) | (pairs[1] << 3) | kicker
-        elif 2 in rank_counts.values():
-            # 一对
-            pair_rank = [rank for rank, count in rank_counts.items() if count == 2][0]
-            kickers = sorted([rank for rank in ranks if rank != pair_rank], reverse=True)
-            return ONEPAIR | (pair_rank << 4) | (kickers[0] << 3) | (kickers[1] << 2) | (kickers[2] << 1)
-        else:
-            # 高牌
-            return HIGHCARD | (ranks[0] << 4) | (ranks[1] << 3) | (ranks[2] << 2) | (ranks[3] << 1) | ranks[4]
-
-    def _rank_to_number(self, rank):
-        rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-                    '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
-        return rank_map.get(rank, 0)
-
-    def _is_straight(self, ranks):
-        """检查是否为顺子"""
-        ranks = sorted(set(ranks), reverse=True)
-        if len(ranks) < 5:
-            return False
-
-        # 检查普通顺子
-        for i in range(len(ranks) - 4):
-            if ranks[i] - ranks[i+4] == 4:
-                return True
-
-        # 检查A-2-3-4-5顺子
-        if set([14, 5, 4, 3, 2]).issubset(set(ranks)):
-            return True
-
-        return False
 
     def _decide_action(self, valid_actions, win_probability, round_state):
         fold_action = valid_actions[0]
