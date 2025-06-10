@@ -57,8 +57,11 @@ def estimate_fold_equity(pot, raise_amt):
 
 # ---------- 主體 ----------
 class MonteCarloPlayer(BasePokerPlayer):
+    # 先定义基础常量
     CARD_RANKS = '23456789TJQKA'
     CARD_SUITS = 'CDHS'  # Clubs Diamonds Hearts Spades
+    
+    # 然后使用这些常量定义静态牌组
     STATIC_DECK = [Card.from_str(s + r) for s in CARD_SUITS for r in CARD_RANKS]
 
     def __init__(self,
