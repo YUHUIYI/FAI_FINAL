@@ -1,195 +1,249 @@
 import random
-import itertools
-from collections import Counter
 from math import exp
-import game.visualize_utils as U
+from collections import defaultdict
 from game.players import BasePokerPlayer
 from game.engine.hand_evaluator_ver1 import HandEvaluator
 from game.engine.card import Card
+import game.visualize_utils as U
 
 
+# ---------- 工具函式 ----------
+def chen_formula_score(card1, card2):
+    """根據 Chen Formula 計算起手牌評分（簡化版）"""
+    rank_map = {'A':10, 'K':8, 'Q':7, 'J':6, 'T':5,
+                '9':4.5, '8':4, '7':3.5, '6':3, '5':2.5,
+                '4':2, '3':1.5, '2':1}
+    r1, r2 = card1[1], card2[1]  # Card string 例如 'SA' → S 花色, A 點數
+    v1, v2 = rank_map[r1], rank_map[r2]
+    high, low = max(v1, v2), min(v1, v2)
+    score = high
+
+    # pair
+    if r1 == r2:
+        score = max(5, high*2)  # 最低給 5
+        if high < 5:            # 小對子扣 1
+            score -= 1
+
+    # suited
+    if card1[0] == card2[0]:
+        score += 2
+
+    # gap / connectors
+    gap = abs("23456789TJQKA".index(r1) - "23456789TJQKA".index(r2)) - 1
+    if gap == 0:
+        score += 1
+    elif gap == 1:
+        score += 0   # 不加不減
+    elif 2 <= gap <= 3:
+        score -= 1
+    else:  # gap ≥ 4
+        score -= 2
+
+    # small bonus for A-2 suited wheel
+    if {"A", "2"} <= {r1, r2} and card1[0] == card2[0]:
+        score += 1
+
+    return max(score, 0)
+
+
+def estimate_fold_equity(pot, raise_amt):
+    """極簡估計對手棄牌率；僅供示意"""
+    if pot <= 0:
+        return 0.0
+    pct = raise_amt / pot
+    # 半池下注→約 30% 棄牌；全池下注→約 45%；全下上衝 60%
+    return max(0.2, min(0.6, 0.3 + 0.3 * pct))
+
+
+# ---------- 主體 ----------
 class MonteCarloPlayer(BasePokerPlayer):
-    def __init__(self, num_simulations=1000, verbose=False):
-        self.num_simulations = num_simulations
-        self.verbose = verbose
-        self.card_ranks = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
-        self.card_suits = ['C', 'D', 'H', 'S']  # Clubs, Diamonds, Hearts, Spades
+    CARD_RANKS = '23456789TJQKA'
+    CARD_SUITS = 'CDHS'  # Clubs Diamonds Hearts Spades
+    STATIC_DECK = [Card.from_str(s + r) for s in CARD_SUITS for r in CARD_RANKS]
 
+    def __init__(self,
+                 base_simulations: int = 1_000,
+                 preflop_threshold: float = 7.0,
+                 verbose: bool = False):
+        self.base_simulations = base_simulations
+        self.preflop_threshold = preflop_threshold
+        self.verbose = verbose
+
+    # -------- 介面回呼（保留可視化） --------
     def declare_action(self, valid_actions, hole_card, round_state):
         try:
-            win_probability = self._calculate_win_probability(hole_card, round_state)
-            action, amount = self._decide_action(valid_actions, win_probability, round_state)
+            street = round_state.get('street', 'preflop')
+            pot_size = round_state.get('pot', {}).get('main', {}).get('amount', 0)
+            call_amt = valid_actions[1]['amount']
+            chen_score = chen_formula_score(hole_card[0], hole_card[1])
+
+            # ---- Pre-flop：弱牌直接應對，強牌才跑 MC ----
+            if street == 'preflop' and chen_score < self.preflop_threshold:
+                # 只在大盲可過牌時跟注，否則棄牌
+                if call_amt == 0:
+                    return valid_actions[1]['action'], call_amt
+                return valid_actions[0]['action'], valid_actions[0]['amount']
+
+            win_prob = self._calculate_win_probability(hole_card, round_state)
+
+            action, amount = self._decide_action(valid_actions,
+                                                 win_prob,
+                                                 pot_size,
+                                                 call_amt,
+                                                 round_state)
 
             if self.verbose:
-                print(f"Monte Carlo分析:")
-                print(f"手牌: {hole_card}")
-                print(f"獲勝機率: {win_probability:.2%}")
-                print(f"決定動作: {action}, 金額: {amount}")
+                print(f"\n=== Monte-Carlo Player ===")
+                print(f"Street = {street}")
+                print(f"Hole  = {hole_card}")
+                print(f"Chen  = {chen_score:.1f}")
+                print(f"Win%  = {win_prob:.3f}")
+                print(f"選擇  = {action}, {amount}")
                 print(U.visualize_declare_action(valid_actions, hole_card, round_state, self.uuid))
 
             return action, amount
+
         except Exception as e:
             if self.verbose:
-                print(f"錯誤: {str(e)}")
-            # 如果發生錯誤，選擇最安全的動作
-            return valid_actions[0]["action"], valid_actions[0]["amount"]
+                print("declare_action error:", e)
+            return valid_actions[0]['action'], valid_actions[0]['amount']
 
-    def receive_game_start_message(self, game_info):
-        #if self.verbose:
-            #print(U.visualize_game_start(game_info, self.uuid))
-            pass
+    # 其餘 receive_* 保留 (省略) -------------------------
+    def receive_game_start_message(self, game_info): pass
+    def receive_round_start_message(self, round_count, hole_card, seats): pass
+    def receive_street_start_message(self, street, round_state): pass
+    def receive_game_update_message(self, new_action, round_state): pass
+    def receive_round_result_message(self, winners, hand_info, round_state): pass
 
-    def receive_round_start_message(self, round_count, hole_card, seats):
-        #if self.verbose:
-            #print(U.visualize_round_start(round_count, hole_card, seats, self.uuid))
-            pass
+    # -------- Monte-Carlo 勝率估計 --------
+    def _calculate_win_probability(self, hole_card, round_state):
+        street = round_state.get('street', 'preflop')
+        community = round_state.get('community_card', [])
 
-    def receive_street_start_message(self, street, round_state):
-        #if self.verbose:
-            #print(U.visualize_street_start(street, round_state, self.uuid))
-            pass
+        # 模擬次數：前街多，後街少
+        sims = { 'preflop': self.base_simulations*20,
+                 'flop'   : self.base_simulations*5,
+                 'turn'   : self.base_simulations*2,
+                 'river'  : self.base_simulations }.get(street, self.base_simulations)
 
-    def receive_game_update_message(self, new_action, round_state):
-        #if self.verbose:
-            #print(U.visualize_game_update(new_action, round_state, self.uuid))
-            pass
-
-    def receive_round_result_message(self, winners, hand_info, round_state):
-        #if self.verbose:
-            #print(U.visualize_round_result(winners, hand_info, round_state, self.uuid))
-            pass
-
-    def _calculate_win_probability(self, hole_cards, round_state):
-        community_cards = round_state.get('community_card', [])
-        num_players = len([seat for seat in round_state.get('seats', []) if seat['state'] != 'folded'])
-
-        # 轉換牌型格式
+        # 轉換格式
         try:
-            # 注意：Card.from_str()需要花色在前，點數在後
-            hole_cards = [Card.from_str(card) for card in hole_cards]  # 直接使用原始格式
-            community_cards = [Card.from_str(card) for card in community_cards]  # 直接使用原始格式
-        except Exception as e:
-            if self.verbose:
-                print(f"牌型轉換錯誤: {str(e)}")
+            my_cards = [Card.from_str(c) for c in hole_card]
+            comm_cards = [Card.from_str(c) for c in community]
+        except Exception:
             return 0.0
 
-        wins = 0
-        for _ in range(self.num_simulations):
+        num_alive = sum(seat['state'] != 'folded'
+                        for seat in round_state.get('seats', []))
+
+        wins = ties = 0
+        deck = [c for c in MonteCarloPlayer.STATIC_DECK
+                if c not in my_cards and c not in comm_cards]
+
+        for _ in range(sims):
             try:
-                remaining_deck = self._get_remaining_deck(hole_cards, community_cards)
-                opponent_hands = self._simulate_opponent_hands(remaining_deck, num_players - 1)
-                simulated_community = self._complete_community_cards(remaining_deck, community_cards)
+                random.shuffle(deck)
+                idx = 0
 
-                my_hand_strength = HandEvaluator.eval_hand(hole_cards, simulated_community)
-                opponent_strengths = [HandEvaluator.eval_hand(hand, simulated_community) for hand in opponent_hands]
+                # 補對手手牌
+                opp_hands = []
+                for _ in range(num_alive - 1):
+                    opp_hands.append([deck[idx], deck[idx+1]])
+                    idx += 2
 
-                if all(my_hand_strength > opp_strength for opp_strength in opponent_strengths):
+                # 補公共牌
+                needed = 5 - len(comm_cards)
+                fake_community = comm_cards + deck[idx: idx+needed]
+
+                my_score = HandEvaluator.eval_hand(my_cards, fake_community)
+                opp_scores = [HandEvaluator.eval_hand(h, fake_community) for h in opp_hands]
+
+                best_opp = max(opp_scores)
+                if my_score > best_opp:
                     wins += 1
-            except Exception as e:
-                if self.verbose:
-                    print(f"模擬錯誤: {str(e)}")
+                elif my_score == best_opp:
+                    ties += 1
+            except Exception:
                 continue
 
-        return wins / self.num_simulations
+        return (wins + 0.5*ties) / sims if sims else 0.0
 
-    def _get_remaining_deck(self, hole_cards, community_cards):
-        all_cards = []
-        for rank in self.card_ranks:
-            for suit in self.card_suits:
-                try:
-                    # 直接使用原始格式
-                    card_str = f"{suit}{rank}"
-                    card = Card.from_str(card_str)
-                    if card not in hole_cards and card not in community_cards:
-                        all_cards.append(card)
-                except Exception as e:
-                    if self.verbose:
-                        print(f"創建牌錯誤: {card_str} - {str(e)}")
-                    continue
-        return all_cards
+    # -------- 行動決策 (加 fold-equity & 三檔下注) --------
+    def _decide_action(self,
+                       valid_actions,
+                       win_prob: float,
+                       pot: int,
+                       call_amt: int,
+                       round_state):
 
-    def _simulate_opponent_hands(self, deck, num_opponents):
-        available_cards = deck.copy()
-        opponent_hands = []
+        fold_act = valid_actions[0]
+        call_act = valid_actions[1]
+        raise_act = valid_actions[2] if len(valid_actions) > 2 else None
+        can_raise = raise_act and raise_act['amount']['min'] != -1
 
-        for _ in range(num_opponents):
-            if len(available_cards) >= 2:
-                hand = random.sample(available_cards, 2)
-                opponent_hands.append(hand)
-                for card in hand:
-                    available_cards.remove(card)
+        pot_odds = call_amt / (pot + call_amt) if pot + call_amt else 0
+        margin = win_prob - pot_odds
 
-        return opponent_hands
+        # ---- 嘗試加注 / 偷雞 ----
+        if can_raise:
+            raise_amt = self._select_raise_amount(raise_act,
+                                                  win_prob,
+                                                  pot,
+                                                  round_state)
 
-    def _complete_community_cards(self, deck, existing_community):
-        cards_needed = 5 - len(existing_community)
-        if cards_needed <= 0:
-            return existing_community
+            # Fold-equity only for post-flop aggressive action
+            street = round_state.get('street', 'preflop')
+            if street in ('turn', 'river') and raise_amt:
+                fold_eq = estimate_fold_equity(pot, raise_amt)
+                eff_win_prob = win_prob + fold_eq*(1 - win_prob)
+            else:
+                eff_win_prob = win_prob
 
-        available_cards = [card for card in deck if card not in existing_community]
-        additional_cards = random.sample(available_cards, min(cards_needed, len(available_cards)))
-        return existing_community + additional_cards
+            # 只有當有效勝率高於 Pot Odds + 0.05 才考慮加注
+            if eff_win_prob - pot_odds > 0.05 and raise_amt:
+                return raise_act['action'], raise_amt
 
-    def _decide_action(self, valid_actions, win_probability, round_state):
-        fold_action = valid_actions[0]
-        call_action = valid_actions[1]
-        can_raise = len(valid_actions) > 2 and valid_actions[2]["amount"]["min"] != -1
+            # 偷雞：勝率略低於 Pot Odds 但隨機 5% 嘗試
+            if win_prob < pot_odds and random.random() < 0.05 and raise_amt:
+                return raise_act['action'], raise_amt
 
-        pot_size = round_state.get('pot', {}).get('main', {}).get('amount', 0)
-        call_amount = call_action["amount"]
-        pot_odds = call_amount / (pot_size + call_amount) if (pot_size + call_amount) > 0 else 0
+        # ---- 跟注 / 棄牌 ----
+        if margin > -0.03:               # 容忍 3% 負 EV
+            return call_act['action'], call_amt
+        return fold_act['action'], fold_act['amount']
 
-        # Bluff: 如果勝率略低於 pot_odds，但有機會偷雞
-        if win_probability < pot_odds and random.random() < 0.05 and can_raise:
-            raise_amount = self._calculate_raise_amount(valid_actions[2], 0.6, round_state)
-            return valid_actions[2]["action"], raise_amount
+    # ---- 選擇三檔 Raise 金額 ----
+    def _select_raise_amount(self, raise_act, win_prob, pot, round_state):
+        min_r, max_r = raise_act['amount']['min'], raise_act['amount']['max']
+        if max_r == -1:  # 無上限，取對手最大籌碼或自己籌碼
+            my_stack = next(seat['stack'] for seat in round_state['seats']
+                            if seat['uuid'] == self.uuid)
+            max_r = my_stack
 
-        # 正常策略
-        margin = win_probability - pot_odds
-        if margin > 0.15 and can_raise:
-            raise_amount = self._calculate_raise_amount(valid_actions[2], win_probability, round_state)
-            return valid_actions[2]["action"], raise_amount
-        elif margin > -0.05:
-            return call_action["action"], call_action["amount"]
+        # 三檔閾值
+        if win_prob >= 0.80:          # 超強牌 → All-in
+            target = max_r
+        elif win_prob >= 0.60:        # 強牌 → 1 pot raise
+            target = pot
+        elif win_prob >= 0.45:        # 可觀察牌 → 0.5 pot raise
+            target = pot * 0.5
         else:
-            return fold_action["action"], fold_action["amount"]
+            return None
 
-    def _calculate_raise_amount(self, raise_action, win_probability, round_state):
-        min_raise = raise_action["amount"]["min"]
-        max_raise = raise_action["amount"]["max"]
-        if max_raise == -1:
-            max_raise = min_raise * 10
+        # 籌碼深度調節
+        my_stack = next(seat['stack'] for seat in round_state['seats']
+                        if seat['uuid'] == self.uuid)
+        opp_max = max(seat['stack'] for seat in round_state['seats']
+                      if seat['uuid'] != self.uuid and seat['state'] != 'folded')
+        stack_ratio = my_stack / opp_max if opp_max else 1.0
+        aggressiveness_factor = 0.5 + 1.5 * min(stack_ratio, 2.0)
+        target *= aggressiveness_factor
 
-        # 取得我方與其他玩家的籌碼量
-        my_stack = 0
-        opp_max_stack = 0
-        for seat in round_state.get('seats', []):
-            if seat['uuid'] == self.uuid:
-                my_stack = seat['stack']
-            elif seat['state'] != 'folded':
-                opp_max_stack = max(opp_max_stack, seat['stack'])
+        # 套用限制
+        target = max(min_r, min(int(target), max_r))
+        return target
 
-        # 比例計算
-        if opp_max_stack > 0:
-            stack_ratio = my_stack / opp_max_stack
-            stack_ratio = max(0.1, min(stack_ratio, 5.0))  # 限制範圍避免極端
-        else:
-            stack_ratio = 1.0
-
-        # stack_ratio 越大 → 越保守，越小 → 越激進
-        aggressiveness_factor = 2 / stack_ratio  # 高 stack_ratio 時 factor < 1，低 stack_ratio 時 factor > 1
-        aggressiveness_factor = max(0.5, min(aggressiveness_factor, 2.0))
-
-        # 用 sigmoid 平滑決定加注幅度
-        scaled = 1 / (1 + exp(-12 * (win_probability - 0.65)))
-
-        # 最終 raise
-        target_raise = min_raise + scaled * (max_raise - min_raise)
-        target_raise *= aggressiveness_factor
-        target_raise = max(min_raise, min(target_raise, max_raise))
-
-        return int(target_raise)
-
-
+# -------- PyPokerEngine 掛載函式 --------
 def setup_ai():
-    return MonteCarloPlayer(num_simulations=1000, verbose=True)
+    # 可調 base_simulations、verbose
+    return MonteCarloPlayer(base_simulations=1_000, verbose=True)
