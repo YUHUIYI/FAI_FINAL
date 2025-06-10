@@ -59,7 +59,6 @@ def estimate_fold_equity(pot, raise_amt):
 class MonteCarloPlayer(BasePokerPlayer):
     CARD_RANKS = '23456789TJQKA'
     CARD_SUITS = 'CDHS'  # Clubs Diamonds Hearts Spades
-    STATIC_DECK = [Card.from_str(s + r) for s in CARD_SUITS for r in CARD_RANKS]
 
     def __init__(self,
                  base_simulations: int = 1_000,
@@ -68,6 +67,7 @@ class MonteCarloPlayer(BasePokerPlayer):
         self.base_simulations = base_simulations
         self.preflop_threshold = preflop_threshold
         self.verbose = verbose
+        self.STATIC_DECK = [Card.from_str(s + r) for s in self.CARD_SUITS for r in self.CARD_RANKS]
 
     # -------- 介面回呼（保留可視化） --------
     def declare_action(self, valid_actions, hole_card, round_state):
@@ -137,7 +137,7 @@ class MonteCarloPlayer(BasePokerPlayer):
                         for seat in round_state.get('seats', []))
 
         wins = ties = 0
-        deck = [c for c in MonteCarloPlayer.STATIC_DECK
+        deck = [c for c in self.STATIC_DECK
                 if c not in my_cards and c not in comm_cards]
 
         for _ in range(sims):
