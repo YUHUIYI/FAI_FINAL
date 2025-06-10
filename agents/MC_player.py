@@ -135,10 +135,7 @@ class MonteCarloPlayer(BasePokerPlayer):
             pair = [rank for rank, count in rank_counts.items() if count == 2][0]
             return 1000 + pair
         else:
-            score = 0
-            for i, rank in enumerate(ranks):
-                score += rank * (10 ** (4 - i))
-            return score
+            return max(ranks)
 
     def _rank_to_number(self, rank):
         rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
