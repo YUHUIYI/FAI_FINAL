@@ -3,9 +3,6 @@ import itertools
 from collections import Counter
 import game.visualize_utils as U
 from game.players import BasePokerPlayer
-from game.engine.hand_evaluator import HandEvaluator
-from game.engine.deck import Deck
-from game.engine.card import Card
 
 
 class MonteCarloPlayer(BasePokerPlayer):
@@ -86,9 +83,9 @@ class MonteCarloPlayer(BasePokerPlayer):
 
     def _get_remaining_deck(self, hole_cards, community_cards):
         """獲取剩餘牌組"""
-        deck = Deck()
-        used_cards = [Card.from_str(card) for card in hole_cards + community_cards]
-        return [str(card) for card in deck.deck if card not in used_cards]
+        all_cards = [rank + suit for rank in self.card_ranks for suit in self.card_suits]
+        used_cards = set(hole_cards + community_cards)
+        return [card for card in all_cards if card not in used_cards]
 
     def _simulate_opponent_hands(self, deck, num_opponents):
         """模擬對手手牌"""
@@ -119,8 +116,14 @@ class MonteCarloPlayer(BasePokerPlayer):
         """評估7張牌中最好的5張牌組合"""
         if len(seven_cards) < 5:
             return 0
-        cards = [Card.from_str(card) for card in seven_cards]
-        return HandEvaluator.eval_hand(cards[:2], cards[2:])
+        
+        best_score = 0
+        # 從7張牌中選出5張牌的所有組合
+        for five_cards in itertools.combinations(seven_cards, 5):
+            score = self._score_hand(list(five_cards))
+            best_score = max(best_score, score)
+        
+        return best_score
 
     def _score_hand(self, five_cards):
         """為5張牌組合評分"""
@@ -158,12 +161,17 @@ class MonteCarloPlayer(BasePokerPlayer):
         elif 2 in rank_counts.values():  # 一對
             pair = [rank for rank, count in rank_counts.items() if count == 2][0]
             return 1000 + pair
-        else:  # 高牌
-            return max(ranks)
+        else:  # 高牌（強化版，五張 kicker 全考慮）
+            score = 0
+            for i, rank in enumerate(ranks):
+                score += rank * (100 ** (4 - i))
+            return score
 
     def _rank_to_number(self, rank):
         """將牌面轉換為數字"""
-        return Card.from_str(f"C{rank}").rank
+        rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, 
+                   '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+        return rank_map.get(rank, 0)
 
     def _is_straight(self, ranks):
         """檢查是否為順子"""
