@@ -88,12 +88,14 @@ class MonteCarloPlayer(BasePokerPlayer):
         for rank in self.card_ranks:
             for suit in self.card_suits:
                 try:
-                    card = Card.from_str(rank + suit)
+                    # 確保正確的牌型格式：點數+花色，例如 '2C', 'AS' 等
+                    card_str = f"{rank}{suit}"
+                    card = Card.from_str(card_str)
                     if card not in hole_cards and card not in community_cards:
                         all_cards.append(card)
                 except Exception as e:
                     if self.verbose:
-                        print(f"創建牌錯誤: {str(e)}")
+                        print(f"創建牌錯誤: {card_str} - {str(e)}")
                     continue
         return all_cards
 
