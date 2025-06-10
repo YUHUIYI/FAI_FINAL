@@ -107,34 +107,11 @@ class MonteCarloPlayer(BasePokerPlayer):
             return valid_actions[0]["action"], valid_actions[0]["amount"]
 
     # -- 以下五個回呼保持空實作 --
-    def receive_game_start_message(self, game_info): 
-        if self.VERBOSE:
-            print("\n=== Game Start ===")
-            print(U.visualize_game_start(game_info, self.uuid))
-
-    def receive_round_start_message(self, round_count, hole_card, seats):
-        if self.VERBOSE:
-            print(f"\n=== Round {round_count} Start ===")
-            print(U.visualize_round_start(round_count, hole_card, seats, self.uuid))
-
-    def receive_street_start_message(self, street, round_state):
-        if self.VERBOSE:
-            print(f"\n=== {street.upper()} Street Start ===")
-            print(f"Community Cards: {round_state.get('community_card', [])}")
-            print(f"Pot: {round_state.get('pot', {}).get('main', {}).get('amount', 0)}")
-
-    def receive_game_update_message(self, new_action, round_state):
-        if self.VERBOSE:
-            print(f"\n=== Action Update ===")
-            print(f"Action: {new_action['action']} {new_action.get('amount', '')}")
-            print(f"Player: {new_action['player']}")
-
-    def receive_round_result_message(self, winners, hand_info, round_state):
-        if self.VERBOSE:
-            print("\n=== Round Result ===")
-            print(f"Winners: {winners}")
-            print(f"Hand Info: {hand_info}")
-            print(U.visualize_round_result(winners, hand_info, round_state, self.uuid))
+    def receive_game_start_message(self, game_info): pass
+    def receive_round_start_message(self, round_count, hole_card, seats): pass
+    def receive_street_start_message(self, street, round_state): pass
+    def receive_game_update_message(self, new_action, round_state): pass
+    def receive_round_result_message(self, winners, hand_info, round_state): pass
 
     # ===========================================================
     # 1) 勝率估計：依街口自適應模擬 + random.sample
