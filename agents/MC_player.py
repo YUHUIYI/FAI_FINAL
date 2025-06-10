@@ -76,19 +76,15 @@ class MonteCarloPlayer(BasePokerPlayer):
             call_amt = valid_actions[1]["amount"]
             chen = chen_formula_score(hole_card[0], hole_card[1])
 
-            # ---------- Pre-flop 弱牌：不跑 MC ----------
-            if street == "preflop" and chen < self.PREFLOP_CHEN_MIN:
-                if call_amt == 0:  # big blind 過牌
-                    return valid_actions[1]["action"], call_amt
-                return valid_actions[0]["action"], valid_actions[0]["amount"]
-
+            # 計算勝率
             win_prob = self._calc_win_prob(hole_card, round_state)
 
+            # 決定動作
             action, amount = self._decide(valid_actions,
-                                          win_prob,
-                                          pot,
-                                          call_amt,
-                                          round_state)
+                                        win_prob,
+                                        pot,
+                                        call_amt,
+                                        round_state)
 
             if self.VERBOSE:
                 print(f"\n=== Monte-Carlo Player ===")
@@ -98,7 +94,7 @@ class MonteCarloPlayer(BasePokerPlayer):
                 print(f"Win%   = {win_prob:.3f}")
                 print(f"Action = {action} {amount}")
                 print(U.visualize_declare_action(valid_actions, hole_card,
-                                                 round_state, self.uuid))
+                                              round_state, self.uuid))
             return action, amount
 
         except Exception as e:
