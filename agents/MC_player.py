@@ -4,7 +4,7 @@ from collections import Counter
 from math import exp
 import game.visualize_utils as U
 from game.players import BasePokerPlayer
-from game.engine.hand_evaluator import HandEvaluator
+from game.engine.hand_evaluator_ver1 import HandEvaluator
 from game.engine.card import Card
 
 
