@@ -130,56 +130,24 @@ class MonteCarloPlayer(BasePokerPlayer):
         call_action = valid_actions[1]
         can_raise = len(valid_actions) > 2 and valid_actions[2]["amount"]["min"] != -1
 
-        # 獲取當前回合信息
         pot_size = round_state.get('pot', {}).get('main', {}).get('amount', 0)
         call_amount = call_action["amount"]
-        street = round_state.get('street', '')
-        community_cards = round_state.get('community_card', [])
-        
-        # 計算pot odds
         pot_odds = call_amount / (pot_size + call_amount) if (pot_size + call_amount) > 0 else 0
 
-        # 獲取玩家信息
-        my_stack = 0
-        opp_stacks = []
-        for seat in round_state.get('seats', []):
-            if seat['uuid'] == self.uuid:
-                my_stack = seat['stack']
-            elif seat['state'] != 'folded':
-                opp_stacks.append(seat['stack'])
+        # Bluff: 如果勝率略低於 pot_odds，但有機會偷雞
+        if win_probability < pot_odds and random.random() < 0.05 and can_raise:
+            raise_amount = self._calculate_raise_amount(valid_actions[2], 0.6, round_state)
+            return valid_actions[2]["action"], raise_amount
 
-        # 計算籌碼相關指標
-        stack_ratio = my_stack / max(opp_stacks) if opp_stacks else 1.0
-        stack_ratio = max(0.1, min(stack_ratio, 5.0))  # 限制範圍避免極端
-        
-        # 根據不同階段調整策略
-        if street == 'preflop':
-            # 翻牌前策略
-            if win_probability < 0.3:  # 手牌太差
-                return fold_action["action"], fold_action["amount"]
-            elif win_probability > 0.7 and can_raise:  # 手牌很好
-                raise_amount = self._calculate_raise_amount(valid_actions[2], win_probability, round_state)
-                return valid_actions[2]["action"], raise_amount
-            elif win_probability > 0.4:  # 手牌一般但可跟注
-                return call_action["action"], call_action["amount"]
-            else:
-                return fold_action["action"], fold_action["amount"]
+        # 正常策略
+        margin = win_probability - pot_odds
+        if margin > 0.15 and can_raise:
+            raise_amount = self._calculate_raise_amount(valid_actions[2], win_probability, round_state)
+            return valid_actions[2]["action"], raise_amount
+        elif margin > -0.05:
+            return call_action["action"], call_action["amount"]
         else:
-            # 翻牌後策略
-            margin = win_probability - pot_odds
-            
-            # 根據勝率和pot odds的差距決定行動
-            if margin > 0.2 and can_raise:  # 明顯優勢
-                raise_amount = self._calculate_raise_amount(valid_actions[2], win_probability, round_state)
-                return valid_actions[2]["action"], raise_amount
-            elif margin > -0.1:  # 接近平衡
-                return call_action["action"], call_action["amount"]
-            else:  # 劣勢
-                # 考慮偷雞機會
-                if len(community_cards) >= 4 and random.random() < 0.1 and can_raise:
-                    raise_amount = self._calculate_raise_amount(valid_actions[2], 0.6, round_state)
-                    return valid_actions[2]["action"], raise_amount
-                return fold_action["action"], fold_action["amount"]
+            return fold_action["action"], fold_action["amount"]
 
     def _calculate_raise_amount(self, raise_action, win_probability, round_state):
         min_raise = raise_action["amount"]["min"]
@@ -187,7 +155,7 @@ class MonteCarloPlayer(BasePokerPlayer):
         if max_raise == -1:
             max_raise = min_raise * 10
 
-        # 獲取玩家信息
+        # 取得我方與其他玩家的籌碼量
         my_stack = 0
         opp_max_stack = 0
         for seat in round_state.get('seats', []):
@@ -196,29 +164,23 @@ class MonteCarloPlayer(BasePokerPlayer):
             elif seat['state'] != 'folded':
                 opp_max_stack = max(opp_max_stack, seat['stack'])
 
-        # 計算籌碼比例
+        # 比例計算
         if opp_max_stack > 0:
             stack_ratio = my_stack / opp_max_stack
-            stack_ratio = max(0.1, min(stack_ratio, 5.0))
+            stack_ratio = max(0.1, min(stack_ratio, 5.0))  # 限制範圍避免極端
         else:
             stack_ratio = 1.0
 
-        # 根據勝率和籌碼比例調整加注幅度
-        if win_probability > 0.8:  # 非常強的牌
-            aggressiveness = 0.8
-        elif win_probability > 0.6:  # 較強的牌
-            aggressiveness = 0.6
-        else:  # 一般牌力
-            aggressiveness = 0.4
+        # stack_ratio 越大 → 越保守，越小 → 越激進
+        aggressiveness_factor = 2 / stack_ratio  # 高 stack_ratio 時 factor < 1，低 stack_ratio 時 factor > 1
+        aggressiveness_factor = max(0.5, min(aggressiveness_factor, 2.0))
 
-        # 根據籌碼比例調整激進程度
-        if stack_ratio > 2:  # 籌碼優勢
-            aggressiveness *= 1.2
-        elif stack_ratio < 0.5:  # 籌碼劣勢
-            aggressiveness *= 0.8
+        # 用 sigmoid 平滑決定加注幅度
+        scaled = 1 / (1 + exp(-12 * (win_probability - 0.65)))
 
-        # 計算最終加注金額
-        target_raise = min_raise + aggressiveness * (max_raise - min_raise)
+        # 最終 raise
+        target_raise = min_raise + scaled * (max_raise - min_raise)
+        target_raise *= aggressiveness_factor
         target_raise = max(min_raise, min(target_raise, max_raise))
 
         return int(target_raise)
