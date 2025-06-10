@@ -21,8 +21,8 @@ baseline_ai_list = [
     #("baseline3", baseline3_ai),
     #("baseline4", baseline4_ai),
     #("baseline5", baseline5_ai),
-    #("baseline6", baseline6_ai),
-    ("baseline7", baseline7_ai)
+    ("baseline6", baseline6_ai),
+    #("baseline7", baseline7_ai)
 ]
 
 def evaluate_MC_agent_vs_baselines(num_games_per_baseline=20):
