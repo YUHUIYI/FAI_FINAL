@@ -57,8 +57,9 @@ class MonteCarloPlayer(BasePokerPlayer):
 
         # 轉換牌型格式
         try:
-            hole_cards = [Card.from_str(card) for card in hole_cards]
-            community_cards = [Card.from_str(card) for card in community_cards]
+            # 注意：Card.from_str()需要花色在前，點數在後
+            hole_cards = [Card.from_str(card[1] + card[0]) for card in hole_cards]
+            community_cards = [Card.from_str(card[1] + card[0]) for card in community_cards]
         except Exception as e:
             if self.verbose:
                 print(f"牌型轉換錯誤: {str(e)}")
@@ -88,8 +89,8 @@ class MonteCarloPlayer(BasePokerPlayer):
         for rank in self.card_ranks:
             for suit in self.card_suits:
                 try:
-                    # 確保正確的牌型格式：點數+花色，例如 '2C', 'AS' 等
-                    card_str = f"{rank}{suit}"
+                    # 注意：Card.from_str()需要花色在前，點數在後
+                    card_str = f"{suit}{rank}"
                     card = Card.from_str(card_str)
                     if card not in hole_cards and card not in community_cards:
                         all_cards.append(card)
