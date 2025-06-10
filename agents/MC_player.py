@@ -153,7 +153,7 @@ class MonteCarloPlayer(BasePokerPlayer):
         return (wins + 0.5 * ties) / sims if sims else 0.0
 
     # ===========================================================
-    # 2) 行動決策：EV-based Call、三檔 Raise、FoldEquity
+    # 2) 行動決策：EV-based Call、三檔 Raise、FoldEquity + Bluff + Aggressive tuning
     # ===========================================================
     def _decide(self, valid_actions, win_prob, pot, call_amt, rs):
         fold_act, call_act = valid_actions[:2]
@@ -163,10 +163,40 @@ class MonteCarloPlayer(BasePokerPlayer):
         pot_odds = call_amt / (pot + call_amt) if pot + call_amt else 0
         margin   = win_prob - pot_odds
 
+        # --- stack-aware aggressiveness & bluff rate ---
+        me_stack = next(s["stack"] for s in rs["seats"] if s["uuid"] == self.uuid)
+        opp_max_stack = max(s["stack"] for s in rs["seats"] if s["uuid"] != self.uuid and s["state"] != "folded")
+        score_diff = me_stack - opp_max_stack
+
+        # Aggression Multiplier + bluff rate
+        if score_diff < -200:
+            aggr_mult = 1.5
+            bluff_rate = 0.12
+        elif score_diff < -50:
+            aggr_mult = 1.2
+            bluff_rate = 0.08
+        elif score_diff < 50:
+            aggr_mult = 1.0
+            bluff_rate = 0.05
+        elif score_diff < 200:
+            aggr_mult = 0.9
+            bluff_rate = 0.03
+        else:
+            aggr_mult = 0.8
+            bluff_rate = 0.02
+
+        # ---------- 嘗試 bluff (新) ----------
+        if can_raise and random.random() < bluff_rate:
+            bluff_amt = self._select_raise(raise_act, 0.4, pot, rs, aggr_mult)  # 假裝 40% 勝率 bluff
+            if bluff_amt:
+                if self.VERBOSE:
+                    print(f"[Bluff activated] Bluff_rate={bluff_rate:.2f}, Agg_mult={aggr_mult:.2f}")
+                return raise_act["action"], bluff_amt
+
         # ---------- 嘗試加注 ----------
         if can_raise:
-            raise_amt = self._select_raise(raise_act, win_prob, pot, rs)
-            if raise_amt:  # 若 None 代表不加注
+            raise_amt = self._select_raise(raise_act, win_prob, pot, rs, aggr_mult)
+            if raise_amt:
                 street = rs.get("street", "preflop")
                 eff_wp = win_prob
                 if street in ("turn", "river"):
@@ -174,8 +204,6 @@ class MonteCarloPlayer(BasePokerPlayer):
                     eff_wp = win_prob + fe * (1 - win_prob)
 
                 if eff_wp - pot_odds > 0.05:
-                    return raise_act["action"], raise_amt
-                if win_prob < pot_odds and random.random() < 0.05:
                     return raise_act["action"], raise_amt
 
         # ---------- EV-based Call / Fold ----------
@@ -185,9 +213,9 @@ class MonteCarloPlayer(BasePokerPlayer):
         return fold_act["action"], fold_act["amount"]
 
     # ===========================================================
-    # 3) 三檔 Raise Sizing：Pre-flop 特調，Post-flop Pot 基準
+    # 3) 三檔 Raise Sizing：Pre-flop 特調，Post-flop Pot 基準 + Agg Mult
     # ===========================================================
-    def _select_raise(self, raise_act, win_prob, pot, rs):
+    def _select_raise(self, raise_act, win_prob, pot, rs, aggr_mult=1.0):
         min_r, max_r = raise_act["amount"]["min"], raise_act["amount"]["max"]
 
         # 無上限 → all-in 上限 = 自己籌碼
@@ -218,16 +246,13 @@ class MonteCarloPlayer(BasePokerPlayer):
         if target is None:
             return None
 
-        # -------- Aggressiveness Factor (籌碼深度) --------
-        me_stack = next(s["stack"] for s in rs["seats"] if s["uuid"] == self.uuid)
-        opp_stack = max(s["stack"] for s in rs["seats"]
-                        if s["uuid"] != self.uuid and s["state"] != "folded")
-        ratio = me_stack / opp_stack if opp_stack else 1.0
-        target *= (1.0 + 0.75 * min(ratio - 1, 1)) if ratio > 1 else 1.0
+        # -------- Apply Aggressiveness Multiplier --------
+        target *= aggr_mult
 
         # 套用邊界
         target = int(max(min_r, min(target, max_r)))
         return target if target >= min_r else None
+
 
 
 # ---------- PyPokerEngine 掛載 ----------
