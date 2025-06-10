@@ -90,10 +90,23 @@ class MonteCarloPlayer(BasePokerPlayer):
         return existing_community + additional_cards
 
     def _evaluate_hand(self, seven_cards):
+        """评估7张牌中最好的5张牌组合"""
         if len(seven_cards) < 5:
             return 0
 
+        # 定义牌型常量
+        HIGHCARD = 0
+        ONEPAIR = 1 << 8
+        TWOPAIR = 1 << 9
+        THREECARD = 1 << 10
+        STRAIGHT = 1 << 11
+        FLASH = 1 << 12
+        FULLHOUSE = 1 << 13
+        FOURCARD = 1 << 14
+        STRAIGHTFLASH = 1 << 15
+
         best_score = 0
+        # 从7张牌中选出5张牌的所有组合
         for five_cards in itertools.combinations(seven_cards, 5):
             score = self._score_hand(list(five_cards))
             best_score = max(best_score, score)
@@ -101,53 +114,73 @@ class MonteCarloPlayer(BasePokerPlayer):
         return best_score
 
     def _score_hand(self, five_cards):
+        """为5张牌组合评分"""
+        # 定义牌型常量
+        HIGHCARD = 0
+        ONEPAIR = 1 << 8
+        TWOPAIR = 1 << 9
+        THREECARD = 1 << 10
+        STRAIGHT = 1 << 11
+        FLASH = 1 << 12
+        FULLHOUSE = 1 << 13
+        FOURCARD = 1 << 14
+        STRAIGHTFLASH = 1 << 15
+
+        # 获取牌面值和花色
         ranks = [self._rank_to_number(card[0]) for card in five_cards]
         suits = [card[1] for card in five_cards]
 
+        # 按牌面值排序
         ranks.sort(reverse=True)
         rank_counts = Counter(ranks)
+        
+        # 检查同花
         is_flush = len(set(suits)) == 1
+        
+        # 检查顺子
         is_straight = self._is_straight(ranks)
 
-        # 获取剩余牌（按大小排序）
-        remaining_ranks = sorted([rank for rank in ranks if rank_counts[rank] == 1], reverse=True)
-
+        # 计算牌型分数
         if is_straight and is_flush:
-            if ranks == [14, 13, 12, 11, 10]:
-                return 9000 + max(ranks)
+            # 同花顺
+            if ranks == [14, 13, 12, 11, 10]:  # 皇家同花顺
+                return STRAIGHTFLASH | (14 << 4)
             else:
-                return 8000 + max(ranks)
+                return STRAIGHTFLASH | (max(ranks) << 4)
         elif 4 in rank_counts.values():
-            four_kind = [rank for rank, count in rank_counts.items() if count == 4][0]
-            kicker = remaining_ranks[0] if remaining_ranks else 0
-            return 7000 + four_kind * 15 + kicker
+            # 四条
+            four_rank = [rank for rank, count in rank_counts.items() if count == 4][0]
+            kicker = [rank for rank in ranks if rank != four_rank][0]
+            return FOURCARD | (four_rank << 4) | kicker
         elif 3 in rank_counts.values() and 2 in rank_counts.values():
-            three_kind = [rank for rank, count in rank_counts.items() if count == 3][0]
-            pair = [rank for rank, count in rank_counts.items() if count == 2][0]
-            return 6000 + three_kind * 15 + pair
+            # 葫芦
+            three_rank = [rank for rank, count in rank_counts.items() if count == 3][0]
+            pair_rank = [rank for rank, count in rank_counts.items() if count == 2][0]
+            return FULLHOUSE | (three_rank << 4) | pair_rank
         elif is_flush:
-            # 同花比较所有牌的大小
-            return 5000 + sum(rank * (15 ** (4-i)) for i, rank in enumerate(ranks))
+            # 同花
+            return FLASH | (ranks[0] << 4) | (ranks[1] << 3) | (ranks[2] << 2) | (ranks[3] << 1) | ranks[4]
         elif is_straight:
-            return 4000 + max(ranks)
+            # 顺子
+            return STRAIGHT | (max(ranks) << 4)
         elif 3 in rank_counts.values():
-            three_kind = [rank for rank, count in rank_counts.items() if count == 3][0]
-            # 三条比较剩余两张牌的大小
-            kickers = remaining_ranks[:2]
-            return 3000 + three_kind * 15 + sum(kicker * (15 ** (1-i)) for i, kicker in enumerate(kickers))
+            # 三条
+            three_rank = [rank for rank, count in rank_counts.items() if count == 3][0]
+            kickers = sorted([rank for rank in ranks if rank != three_rank], reverse=True)
+            return THREECARD | (three_rank << 4) | (kickers[0] << 3) | (kickers[1] << 2)
         elif list(rank_counts.values()).count(2) == 2:
-            # 两对比较对子大小和剩余牌
+            # 两对
             pairs = sorted([rank for rank, count in rank_counts.items() if count == 2], reverse=True)
-            kicker = remaining_ranks[0] if remaining_ranks else 0
-            return 2000 + pairs[0] * 15 + pairs[1] * 15 + kicker
+            kicker = [rank for rank in ranks if rank not in pairs][0]
+            return TWOPAIR | (pairs[0] << 4) | (pairs[1] << 3) | kicker
         elif 2 in rank_counts.values():
-            # 一对比较对子大小和剩余三张牌
-            pair = [rank for rank, count in rank_counts.items() if count == 2][0]
-            kickers = remaining_ranks[:3]
-            return 1000 + pair * 15 + sum(kicker * (15 ** (2-i)) for i, kicker in enumerate(kickers))
+            # 一对
+            pair_rank = [rank for rank, count in rank_counts.items() if count == 2][0]
+            kickers = sorted([rank for rank in ranks if rank != pair_rank], reverse=True)
+            return ONEPAIR | (pair_rank << 4) | (kickers[0] << 3) | (kickers[1] << 2) | (kickers[2] << 1)
         else:
-            # 高牌比较所有牌的大小
-            return sum(rank * (15 ** (4-i)) for i, rank in enumerate(ranks))
+            # 高牌
+            return HIGHCARD | (ranks[0] << 4) | (ranks[1] << 3) | (ranks[2] << 2) | (ranks[3] << 1) | ranks[4]
 
     def _rank_to_number(self, rank):
         rank_map = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
@@ -155,14 +188,17 @@ class MonteCarloPlayer(BasePokerPlayer):
         return rank_map.get(rank, 0)
 
     def _is_straight(self, ranks):
+        """检查是否为顺子"""
         ranks = sorted(set(ranks), reverse=True)
         if len(ranks) < 5:
             return False
 
+        # 检查普通顺子
         for i in range(len(ranks) - 4):
-            if ranks[i] - ranks[i + 4] == 4:
+            if ranks[i] - ranks[i+4] == 4:
                 return True
 
+        # 检查A-2-3-4-5顺子
         if set([14, 5, 4, 3, 2]).issubset(set(ranks)):
             return True
 
