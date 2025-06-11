@@ -1,7 +1,7 @@
 import random
 from collections import defaultdict
 from game.players import BasePokerPlayer
-from game.engine.hand_evaluator_ver1 import HandEvaluator
+from game.engine.hand_evaluator_20bits_1 import HandEvaluator
 from game.engine.card import Card
 import game.visualize_utils as U
 
